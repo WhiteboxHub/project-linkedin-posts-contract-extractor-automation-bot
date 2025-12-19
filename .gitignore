@@ -1,0 +1,9 @@
+.env
+*.csv
+*.json
+__pycache__/
+*.pyc
+chromedriver
+geckodriver
+*.log
+output.csv
