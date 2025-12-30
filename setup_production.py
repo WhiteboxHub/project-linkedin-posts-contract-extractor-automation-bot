@@ -87,28 +87,29 @@ def run_setup():
         marketing_data = response.json()
         
       
-        active_candidates = []
+        all_candidates = []
         for record in marketing_data.get('data', []):
-            if record.get('status') == 'active' and record.get('candidate'):
-                active_candidates.append({
+            if record.get('candidate'):
+                all_candidates.append({
                     "id": record['candidate']['id'],
                     "name": record['candidate']['full_name'],
-                    "start_date": record.get('start_date', 'N/A')
+                    "start_date": record.get('start_date', 'N/A'),
+                    "status": record.get('status', 'N/A')
                 })
         
-        if active_candidates:
-            print(f"\n Found {len(active_candidates)} active marketing candidates:")
-            print(f" {'ID':<5} | {'Name':<25} | {'Start Date':<12}")
-            print("-" * 50)
-            for cand in active_candidates:
-                print(f" {cand['id']:<5} | {cand['name']:<25} | {cand['start_date']}")
+        if all_candidates:
+            print(f"\n Found {len(all_candidates)} marketing candidates:")
+            print(f" {'ID':<5} | {'Name':<25} | {'Start Date':<12} | {'Status':<10}")
+            print("-" * 60)
+            for cand in all_candidates:
+                print(f" {cand['id']:<5} | {cand['name']:<25} | {cand['start_date']} | {cand['status']}")
             
             cand_choice = input("\nEnter Candidate ID to associate with this bot (or press Enter to skip): ").strip()
             if cand_choice:
                 selected_candidate_id = cand_choice
                 print(f" Selected candidate ID: {selected_candidate_id}")
         else:
-            print(" No active marketing candidates found.")
+            print(" No marketing candidates found.")
     except Exception as e:
         print(f" Could not fetch candidates from existing endpoint: {e}")
         print(" Skipping candidate selection.")

@@ -160,11 +160,31 @@ class LinkedInBotComplete:
         return any(kw in text_lower for kw in config.AI_KEYWORDS)
     
     def get_posts(self):
-      
-        time.sleep(5)
-        for i in range(5):
+        print("  Scrolling feed...")
+        last_height = self.driver.execute_script("return document.body.scrollHeight")
+        
+        # Increased range to ensure we find multiple batches
+        for i in range(20):
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(2)
+            
+           
+            try:
+                show_more_btns = self.driver.find_elements(By.XPATH, "//button[contains(., 'Show more results')]")
+                
+                for btn in show_more_btns:
+                    if btn.is_displayed():
+                        print("  Found 'Show more results' button - Clicking...")
+                        self.driver.execute_script("arguments[0].click();", btn)
+                        time.sleep(4) 
+                        break 
+            except Exception as e:
+                pass
+            
+            # Check if page size increased
+            new_height = self.driver.execute_script("return document.body.scrollHeight")
+            last_height = new_height
+
         try:
             posts = self.driver.find_elements(By.XPATH, "//div[contains(@class, 'feed-shared-update-v2')]")
             if posts:

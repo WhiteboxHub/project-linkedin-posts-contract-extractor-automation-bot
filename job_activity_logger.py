@@ -39,7 +39,7 @@ class JobActivityLogger:
  
         if not self.api_token:
             return False
-       
+        if '/api' in self.api_url:
             base_url = self.api_url.rstrip('/')
         else:
             base_url = f"{self.api_url.rstrip('/')}/api"
