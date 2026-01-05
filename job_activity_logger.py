@@ -35,7 +35,7 @@ class JobActivityLogger:
             return clean_url.split('/in/')[-1].split('?')[0]
         return clean_url
 
-    def save_vendor_contact(self, data: dict) -> bool:
+    def save_vendor_contact(self, data: dict, source_email: str = None) -> bool:
  
         if not self.api_token:
             return False
@@ -47,6 +47,9 @@ class JobActivityLogger:
         endpoint = f"{base_url}/vendor_contact"
         linkedin_id = self._extract_linkedin_id(data.get('linkedin_id'))
         
+        # Use provided source_email or fallback to env var
+        final_source_email = source_email or os.getenv('LINKEDIN_EMAIL')
+        
         payload = {
             "full_name": data.get('full_name') or 'Unknown',
             "email": data.get('email'),
@@ -54,7 +57,7 @@ class JobActivityLogger:
             "linkedin_id": linkedin_id,
             "company_name": data.get('company_name'),
             "location": data.get('location'),
-            "source_email": os.getenv('LINKEDIN_EMAIL')
+            "source_email": final_source_email
         }
         
         try:
