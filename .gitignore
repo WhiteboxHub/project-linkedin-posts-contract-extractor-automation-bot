@@ -7,3 +7,4 @@ chromedriver
 geckodriver
 *.log
 output.csv
+saved_posts
