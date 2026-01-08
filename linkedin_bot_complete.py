@@ -3,6 +3,8 @@ import time
 import csv
 import re
 import os
+import json
+import hashlib
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -17,22 +19,199 @@ from job_activity_logger import JobActivityLogger
 
 
 class LinkedInBotComplete:
-    def __init__(self):
+    def __init__(self, email=None, password=None, candidate_id=None, keywords=None):
         self.driver = None
+        self.linkedin_email = email or config.LINKEDIN_EMAIL
+        self.linkedin_password = password or config.LINKEDIN_PASSWORD
+        self.candidate_id = candidate_id
         self.processed_profiles = set()
-        self.keywords = []
+        self.processed_posts = set()  # Track post IDs to avoid duplicates
+        self.keywords = keywords if keywords else []
         self.total_saved = 0
-        self.activity_logger = JobActivityLogger()  
+        self.posts_saved = 0  # Track total posts saved
+        
+        # Initialize logger with candidate ID if provided
+        self.activity_logger = JobActivityLogger()
+        if self.candidate_id:
+            self.activity_logger.selected_candidate_id = self.candidate_id
+            
+        self.posts_dir = "saved_posts"  # Directory for saved posts
+        self.load_processed_posts()  # Load previously processed post IDs
         
     def load_keywords(self):
+        # If keywords provided in constructor, use them
+        if self.keywords:
+            print(f"Loaded {len(self.keywords)} keywords from config")
+            return True
+            
         try:
             with open(config.KEYWORDS_FILE, 'r', encoding='utf-8') as f:
                 lines = [line.strip() for line in f if line.strip() and not line.startswith('#')]
             self.keywords = lines
-            print(f"Loaded {len(self.keywords)} keywords")
+            print(f"Loaded {len(self.keywords)} keywords from file")
             return True
         except FileNotFoundError:
             print(f"[ERROR] Keywords file not found")
+            return False
+    
+    def load_processed_posts(self):
+        """Load previously processed post IDs from all_posts.csv to avoid duplicates."""
+        try:
+            if os.path.exists('all_posts.csv'):
+                with open('all_posts.csv', 'r', encoding='utf-8') as f:
+                    # Skip header
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        if row.get('post_id'):
+                            self.processed_posts.add(row['post_id'])
+                print(f"Loaded {len(self.processed_posts)} previously processed post IDs from CSV")
+            # Fallback to text file if it exists (migration support)
+            elif os.path.exists('processed_posts.txt'):
+                 with open('processed_posts.txt', 'r') as f:
+                    ids = set(line.strip() for line in f if line.strip())
+                    self.processed_posts.update(ids)
+                 print(f"Loaded {len(ids)} processed IDs from legacy txt file")
+        except Exception as e:
+            print(f"Could not load processed posts: {e}")
+            self.processed_posts = set()
+    
+    def save_processed_post_id(self, post_id):
+        """Track locally."""
+        self.processed_posts.add(post_id)
+    
+    def extract_post_id(self, post):
+        """Extract unique post ID from LinkedIn post element."""
+        try:
+            # Try to get data-urn or other unique identifier
+            post_id = post.get_attribute('data-urn')
+            if post_id:
+                return post_id
+            
+            # Fallback: try to get from activity ID
+            activity_id = post.get_attribute('data-activity-urn')
+            if activity_id:
+                return activity_id
+            
+            # Last resort: generate from post content hash
+            post_html = post.get_attribute('outerHTML')
+            if post_html:
+                return hashlib.md5(post_html[:500].encode()).hexdigest()
+        except:
+            pass
+        return None
+    
+    def clean_post_text(self, text):
+        """Clean post text by removing hashtags, '…more', and UI elements."""
+        if not text:
+            return ""
+            
+        # Remove "...more"
+        text = text.replace("…more", "").replace("...more", "")
+        
+        # Remove "Like Comment Share" and similar UI text lines
+        lines = text.split('\n')
+        cleaned_lines = []
+        for line in lines:
+            if "Like Comment Share" in line or "Comment" == line.strip() or "Share" == line.strip():
+                continue
+            cleaned_lines.append(line)
+        text = "\n".join(cleaned_lines)
+            
+        # Remove hashtags (e.g. #hiring, #AI) - handles embedded and standalone
+        # This regex looks for # followed by alphanumerics
+        text = re.sub(r'#\w+', '', text)
+        
+        # Clean up extra whitespace
+        text = re.sub(r'\n{3,}', '\n\n', text) # Max 2 newlines
+        text = re.sub(r'[ \t]+', ' ', text) # Collapse spaces
+        
+        return text.strip()
+
+    def save_full_post(self, post_content, post_id, keyword, metadata=None):
+        """Save full post content to a single file per keyword, including metadata."""
+        try:
+            # Create posts directory if it doesn't exist
+            if not os.path.exists(self.posts_dir):
+                os.makedirs(self.posts_dir)
+            
+            # Create safe keyword filename
+            safe_keyword = keyword.replace(' ', '_').replace('/', '_')
+            filename = f"{safe_keyword}_posts.txt"
+            filepath = os.path.join(self.posts_dir, filename)
+            
+            # Prepare metadata text
+            meta_text = ""
+            if metadata:
+                meta_text = (
+                    f"Full Name: {metadata.get('full_name', 'N/A')}\n"
+                    f"Email: {metadata.get('email', 'N/A')}\n"
+                    f"Phone: {metadata.get('phone', 'N/A')}\n"
+                    f"LinkedIn ID: {metadata.get('linkedin_id', 'N/A')}\n"
+                    f"Company: {metadata.get('company_name', 'N/A')}\n"
+                    f"Location: {metadata.get('location', 'N/A')}\n"
+                    f"Extraction Date: {metadata.get('extraction_date', 'N/A')}\n"
+                    f"Search Keyword: {metadata.get('search_keyword', 'N/A')}\n"
+                )
+            
+            # Append plain text content
+            with open(filepath, 'a', encoding='utf-8') as f:
+                f.write("\n" + "=" * 80 + "\n")
+                f.write(f"POST ID: {post_id}\n")
+                f.write("-" * 80 + "\n")
+                if meta_text:
+                    f.write("METADATA:\n")
+                    f.write(meta_text)
+                    f.write("-" * 80 + "\n")
+                f.write("POST CONTENT:\n\n")
+                f.write(post_content)
+                f.write("\n\n")
+            
+            return True
+        except Exception as e:
+            print(f"      [ERROR saving post]: {e}")
+            return False
+    
+    def save_post_metadata(self, post_data, keyword, post_id):
+        """Save post metadata to master posts CSV."""
+        posts_csv = 'all_posts.csv'
+        file_exists = os.path.exists(posts_csv)
+        
+        try:
+            with open(posts_csv, 'a', newline='', encoding='utf-8') as f:
+                fieldnames = [
+                    'post_id', 'post_url', 'keyword', 'author_name', 'post_text_preview',
+                    'profile_url', 'has_email', 'has_phone', 'is_job_post',
+                    'is_ai_related', 'extraction_date'
+                ]
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                
+                if not file_exists:
+                    writer.writeheader()
+                
+                # Truncate post text for preview
+                post_preview = post_data.get('post_text', '')[:200]
+                
+                # Construct post URL from URN if available
+                post_url = post_data.get('post_url', '')
+                if not post_url and post_id and 'urn:li:activity:' in post_id:
+                    post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
+                
+                writer.writerow({
+                    'post_id': post_id,
+                    'post_url': post_url,
+                    'keyword': keyword,
+                    'author_name': post_data.get('name', ''),
+                    'post_text_preview': post_preview,
+                    'profile_url': post_data.get('profile_url', ''),
+                    'has_email': 'Yes' if post_data.get('email') else 'No',
+                    'has_phone': 'Yes' if post_data.get('phone') else 'No',
+                    'is_job_post': 'Yes' if post_data.get('has_job') else 'No',
+                    'is_ai_related': 'Yes' if post_data.get('is_relevant') else 'No',
+                    'extraction_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                })
+            return True
+        except Exception as e:
+            print(f"      [ERROR saving metadata]: {e}")
             return False
     
     def init_driver(self):
@@ -51,14 +230,47 @@ class LinkedInBotComplete:
         self.driver.get("https://www.linkedin.com/login")
         time.sleep(2)
         
-        self.driver.find_element(By.ID, "username").send_keys(config.LINKEDIN_EMAIL)
+        self.driver.find_element(By.ID, "username").send_keys(self.linkedin_email)
         time.sleep(1)
-        self.driver.find_element(By.ID, "password").send_keys(config.LINKEDIN_PASSWORD)
+        self.driver.find_element(By.ID, "password").send_keys(self.linkedin_password)
         time.sleep(1)
         self.driver.find_element(By.ID, "password").send_keys(Keys.RETURN)
         time.sleep(5)
         print("Logged in!")
         
+    def apply_sort_filter(self):
+        """Apply the Sort By filter on the search results page."""
+        try:
+            print("  Applying Sort By filter...")
+            # 1. Click the "Sort by" button
+            sort_button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "searchFilter_sortBy"))
+            )
+            sort_button.click()
+            time.sleep(2)
+
+            # 2. Select the option based on config
+            sort_value = getattr(config, 'SORT_BY', 'latest').lower()
+            if sort_value == 'latest':
+                option_id = "sortBy-date_posted"
+            else: # relevance / top match
+                option_id = "sortBy-relevance"
+            
+            # Click the radio button
+            option_element = self.driver.find_element(By.ID, option_id)
+            self.driver.execute_script("arguments[0].click();", option_element)
+            time.sleep(1)
+            
+            # Click show results
+            show_results_btn = self.driver.find_element(By.XPATH, "//button[contains(@aria-label, 'Apply current filter')]")
+            show_results_btn.click()
+            time.sleep(3)
+            
+            return True
+        except Exception as e:
+            print(f"  [Warning] Could not apply sort filter via UI: {e}")
+            return False
+
     def search_posts(self, keyword):
         print(f"\n{'='*60}\nKEYWORD: {keyword}\n{'='*60}")
         
@@ -73,6 +285,7 @@ class LinkedInBotComplete:
             search_box.clear()
             time.sleep(1)
             
+            from selenium.webdriver.common.keys import Keys
             for char in keyword:
                 search_box.send_keys(char)
                 time.sleep(0.05)
@@ -87,8 +300,12 @@ class LinkedInBotComplete:
                 self.driver.get(posts_url)
                 time.sleep(5)
             
+            # Now apply our UI-based sort filter
+            self.apply_sort_filter()
+            
             return True
-        except:
+        except Exception as e:
+            print(f"  [Error searching]: {e}")
             return False
     
     def extract_email(self, text):
@@ -160,11 +377,31 @@ class LinkedInBotComplete:
         return any(kw in text_lower for kw in config.AI_KEYWORDS)
     
     def get_posts(self):
-      
-        time.sleep(5)
-        for i in range(5):
+        print("  Scrolling feed...")
+        last_height = self.driver.execute_script("return document.body.scrollHeight")
+        
+        # Increased range to ensure we find multiple batches
+        for i in range(20):
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(2)
+            
+           
+            try:
+                show_more_btns = self.driver.find_elements(By.XPATH, "//button[contains(., 'Show more results')]")
+                
+                for btn in show_more_btns:
+                    if btn.is_displayed():
+                        print("  Found 'Show more results' button - Clicking...")
+                        self.driver.execute_script("arguments[0].click();", btn)
+                        time.sleep(4) 
+                        break 
+            except Exception as e:
+                pass
+            
+            # Check if page size increased
+            new_height = self.driver.execute_script("return document.body.scrollHeight")
+            last_height = new_height
+
         try:
             posts = self.driver.find_elements(By.XPATH, "//div[contains(@class, 'feed-shared-update-v2')]")
             if posts:
@@ -174,14 +411,24 @@ class LinkedInBotComplete:
             pass
         return []
     
-    def extract_post_data(self, post):
+
+    
+    def extract_post_data(self, post, get_full_html=False):
+        """Extract data from post. Optionally get full HTML."""
         data = {
             'name': '', 'email': '', 'phone': '', 'post_text': '',
-            'profile_url': '', 'company': '', 'location': '',
-            'is_relevant': False, 'has_job': False
+            'profile_url': '', 'company': '', 'location': '', 'post_url': '',
+            'is_relevant': False, 'has_job': False, 'post_html': ''
         }
         
         try:
+            # Get full HTML if requested
+            if get_full_html:
+                try:
+                    data['post_html'] = post.get_attribute('outerHTML')
+                except:
+                    pass
+            
             try:
                 name_elem = post.find_element(By.XPATH, ".//span[@aria-hidden='true']")
                 name = name_elem.text.strip()
@@ -194,7 +441,9 @@ class LinkedInBotComplete:
                 text_elem = post.find_element(By.XPATH, ".//div[contains(@class, 'update-components-text')]")
                 text = text_elem.text.strip()
                 if text:
-                    data['post_text'] = text.encode('ascii', 'ignore').decode('ascii')
+                    # Clean the text using our helper method
+                    cleaned = self.clean_post_text(text)
+                    data['post_text'] = cleaned.encode('ascii', 'ignore').decode('ascii')
             except:
                 pass
             
@@ -338,7 +587,7 @@ class LinkedInBotComplete:
             with open(config.OUTPUT_FILE, 'a', newline='', encoding='utf-8') as f:
                 fieldnames = [
                     'full_name', 'email', 'phone', 'linkedin_id',
-                    'company_name', 'location', 'extraction_date', 'search_keyword'
+                    'company_name', 'location', 'post_url', 'extraction_date', 'search_keyword'
                 ]
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 
@@ -352,12 +601,13 @@ class LinkedInBotComplete:
                     'linkedin_id': data.get('linkedin_id', ''),
                     'company_name': data.get('company_name', ''),
                     'location': data.get('location', ''),
+                    'post_url': data.get('post_url', ''),
                     'extraction_date': datetime.now().strftime('%Y-%m-%d'),
                     'search_keyword': keyword
                 })
             
             # Also save to WBL Backend
-            synced = self.activity_logger.save_vendor_contact(data)
+            synced = self.activity_logger.save_vendor_contact(data, source_email=self.linkedin_email)
             
             self.total_saved += 1
             return synced
@@ -377,60 +627,108 @@ class LinkedInBotComplete:
         
         print(f"  Processing {len(posts)} posts...")
         found = 0
+        posts_processed = 0
+        
         
         for post in posts:
-            post_data = self.extract_post_data(post)
+            # Extract post ID first
+            post_id = self.extract_post_id(post)
             
-            # Skip duplicate
-            if post_data['profile_url'] in self.processed_profiles:
+            # Skip if we've already processed this post
+            if post_id and post_id in self.processed_posts:
                 continue
             
-            # Must have job keywords
-            if not post_data['has_job']:
-                continue
+            # Extract post data
+            post_data = self.extract_post_data(post, get_full_html=True)
             
-            # Must be AI/Tech
-            if not post_data['is_relevant']:
-                continue
+            # Construct post URL
+            post_url = ""
+            if post_id and 'urn:li:activity:' in post_id:
+                post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
+            post_data['post_url'] = post_url
+
+            # Initialize metadata with what we have from the post
+            current_meta = {
+                'full_name': post_data.get('name', ''),
+                'email': post_data.get('email', ''),
+                'phone': post_data.get('phone', ''),
+                'linkedin_id': post_data.get('profile_url', ''), # Use profile URL as ID
+                'company_name': post_data.get('company', ''),
+                'location': post_data.get('location', ''),
+                'post_url': post_url,
+                'extraction_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'search_keyword': keyword
+            }
             
-            found += 1
-            print(f"  [{found}] {post_data['name'] or 'Unknown'}")
+            is_extracted = False
             
-            # Get full profile data
-            if post_data['profile_url']:
-                print(f"      Extracting full profile...")
-                profile_data = self.extract_full_profile_data(post_data['profile_url'])
-    
-                best_email = profile_data['email'] or post_data['email']
+            # Check relevance for full extraction
+            # 1. Check duplicate profile
+            # 2. Check job keywords
+            # 3. Check AI relevance
+            if (post_data['profile_url'] not in self.processed_profiles and 
+                post_data['has_job'] and 
+                post_data['is_relevant']):
                 
-                final_data = {
-                    'full_name': profile_data['full_name'] or post_data['name'],
-                    'email': best_email,  # ONLY ONE EMAIL - best one
-                    'phone': profile_data['phone'] or post_data['phone'],
-                    'linkedin_id': profile_data['linkedin_id'],
-                    'company_name': profile_data['company_name'],
-                    'location': profile_data['location']
-                }
+                found += 1
+                print(f"  [{found}] RELEVANT CONTACT: {post_data['name'] or 'Unknown'}")
                 
-                
-                print(f"      Name: {final_data['full_name']}")
-                print(f"      Email: {final_data['email'] or 'NOT FOUND'}")
-                print(f"      Phone: {final_data['phone'] or 'NOT FOUND'}")
-                print(f"      Company: {final_data['company_name'] or 'N/A'}")
-                print(f"      Location: {final_data['location'] or 'N/A'}")
-                
-               
-                if self.save_contact(final_data, keyword):
-                    print(f"      [SAVED #{self.total_saved}] ✓ (Synced to Backend)")
-                else:
-                    print(f"      [SAVED #{self.total_saved}] (Local Only)")
-                
-                
-                self.processed_profiles.add(post_data['profile_url'])
+                # Get full profile data
+                if post_data['profile_url']:
+                    print(f"      Extracting full profile...")
+                    profile_data = self.extract_full_profile_data(post_data['profile_url'])
+        
+                    best_email = profile_data['email'] or post_data['email']
+                    
+                    final_data = {
+                        'full_name': profile_data['full_name'] or post_data['name'],
+                        'email': best_email,
+                        'phone': profile_data['phone'] or post_data['phone'],
+                        'linkedin_id': profile_data['linkedin_id'],
+                        'company_name': profile_data['company_name'],
+                        'location': profile_data['location'],
+                        'post_url': post_url,
+                        'extraction_date': current_meta['extraction_date'],
+                        'search_keyword': keyword
+                    }
+                    
+                    # update current_meta with better data
+                    current_meta.update(final_data)
+                    
+                    print(f"      Name: {final_data['full_name']}")
+                    print(f"      Email: {final_data['email'] or 'NOT FOUND'}")
+                    print(f"      Phone: {final_data['phone'] or 'NOT FOUND'}")
+                    print(f"      Company: {final_data['company_name'] or 'N/A'}")
+                    print(f"      Location: {final_data['location'] or 'N/A'}")
+                    
+                    if self.save_contact(final_data, keyword):
+                        print(f"      [SAVED #{self.total_saved}] ✓ (Synced to Backend)")
+                    else:
+                        print(f"      [SAVED #{self.total_saved}] (Local Only)")
+                    
+                    self.processed_profiles.add(post_data['profile_url'])
+                    is_extracted = True
             
+            # Save ALL posts (relevant or not) with best available metadata
+            if post_id:
+                status_msg = " (With Contact Info)" if is_extracted else ""
+                print(f"  [Post {posts_processed + 1}] Saving post {post_id[:30]}...{status_msg}")
+                
+                if self.save_full_post(post_data['post_text'], post_id, keyword, metadata=current_meta):
+                    if not is_extracted:
+                        print(f"      ✓ Post saved")
+
+                # Save metadata to CSV
+                self.save_post_metadata(post_data, keyword, post_id)
+                
+                # Mark as processed
+                self.save_processed_post_id(post_id)
+                self.posts_saved += 1
+                posts_processed += 1
+
             time.sleep(2)
         
-        print(f"  Keyword complete: {found} contacts")
+        print(f"  Keyword complete: {posts_processed} posts saved, {found} contacts extracted")
         return found
     
     def run(self):
@@ -463,14 +761,19 @@ class LinkedInBotComplete:
                     time.sleep(3)
             
             print("\n" + "=" * 60)
-            print(f"COMPLETED! Saved {self.total_saved} contacts")
+            print(f"COMPLETED!")
+            print(f"  - {self.posts_saved} total posts saved")
+            print(f"  - {self.total_saved} contacts extracted")
+            print(f"  - Posts saved to: {self.posts_dir}/")
+            print(f"  - Post metadata: all_posts.csv")
+            print(f"  - Contacts: {config.OUTPUT_FILE}")
             print("=" * 60)
             
            
             print("\nLogging activity to WBL backend...")
             self.activity_logger.log_activity(
                 activity_count=self.total_saved,
-                notes=f"LinkedIn extraction completed. Processed {len(self.keywords)} keywords."
+                notes=f"LinkedIn extraction: {self.posts_saved} posts saved, {self.total_saved} contacts extracted from {len(self.keywords)} keywords."
             )
             
         except KeyboardInterrupt:
@@ -496,5 +799,60 @@ class LinkedInBotComplete:
 
 
 if __name__ == "__main__":
+    import json
+    
+    # Check for candidates.json
+    candidates_file = "candidates.json"
+    
+    if os.path.exists(candidates_file):
+        print(f"Found {candidates_file}. running multi-candidate mode...")
+        try:
+            with open(candidates_file, 'r') as f:
+                candidates = json.load(f)
+            
+            if not candidates:
+                print(" [WARNING] candidates.json exists but is empty. Falling back to .env settings...")
+                # Fall through to single user block
+            else:
+                for i, cand in enumerate(candidates, 1):
+                    try:
+                        print(f"\n\n{'#'*80}")
+                        print(f"PROCESSING CANDIDATE {i}/{len(candidates)}")
+                        print(f"Email: {cand.get('linkedin_email')}")
+                        print(f"Candidate ID: {cand.get('candidate_id', 'Not Set')}")
+                        print(f"{'#'*80}\n")
+                        
+                        if not cand.get('linkedin_email') or not cand.get('linkedin_password'):
+                            print("Skipping - missing credentials")
+                            continue
+                            
+                        bot = LinkedInBotComplete(
+                            email=cand.get('linkedin_email'),
+                            password=cand.get('linkedin_password'),
+                            candidate_id=cand.get('candidate_id'),
+                            keywords=cand.get('keywords', [])
+                        )
+                        bot.run()
+                        
+                        # Cool down between candidates
+                        if i < len(candidates):
+                            print("Waiting 10 seconds before next candidate...")
+                            time.sleep(10)
+                            
+                    except Exception as e:
+                        print(f"Error processing candidate {i}: {e}")
+                        continue
+                
+                print("\nAll candidates processed.")
+                exit(0)
+
+        except Exception as e:
+            print(f"Error reading config: {e}")
+            print("Falling back to .env settings...")
+
+    else:
+        print("No candidates.json found. Running in single-user mode using .env settings.")
+
+    # Fallback to single user .env mode
     bot = LinkedInBotComplete()
     bot.run()

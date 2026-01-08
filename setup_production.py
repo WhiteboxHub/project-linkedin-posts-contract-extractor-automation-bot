@@ -10,7 +10,7 @@ DEFAULT_API_URL = "http://localhost:8000"
 JOB_UNIQUE_ID = "bot_linkedin_post_contact_extractor"
 ENV_FILE = ".env"
 
-def run_setup():
+def setup_api_connection():
     print("=" * 70)
     print(" WBL JOB ACTIVITY LOGGER SETUP")
     print("=" * 70)
@@ -72,46 +72,7 @@ def run_setup():
              print(f"   Response: {e.response.text}")
         return
 
-    print("\n Step 3.5: Select Marketing Candidate (Optional)")
-    print("-" * 70)
-    print(" Fetching marketing candidates...")
-    
     selected_candidate_id = "0"
-    try:
-        marketing_url = f"{api_url}/candidate/marketing"
-        if "localhost" in api_url and not api_url.endswith("/api"):
-            marketing_url = f"{api_url}/api/candidate/marketing"
-            
-        response = requests.get(marketing_url, params={"limit": 1000}, headers={"Authorization": f"Bearer {token}"})
-        response.raise_for_status()
-        marketing_data = response.json()
-        
-      
-        active_candidates = []
-        for record in marketing_data.get('data', []):
-            if record.get('status') == 'active' and record.get('candidate'):
-                active_candidates.append({
-                    "id": record['candidate']['id'],
-                    "name": record['candidate']['full_name'],
-                    "start_date": record.get('start_date', 'N/A')
-                })
-        
-        if active_candidates:
-            print(f"\n Found {len(active_candidates)} active marketing candidates:")
-            print(f" {'ID':<5} | {'Name':<25} | {'Start Date':<12}")
-            print("-" * 50)
-            for cand in active_candidates:
-                print(f" {cand['id']:<5} | {cand['name']:<25} | {cand['start_date']}")
-            
-            cand_choice = input("\nEnter Candidate ID to associate with this bot (or press Enter to skip): ").strip()
-            if cand_choice:
-                selected_candidate_id = cand_choice
-                print(f" Selected candidate ID: {selected_candidate_id}")
-        else:
-            print(" No active marketing candidates found.")
-    except Exception as e:
-        print(f" Could not fetch candidates from existing endpoint: {e}")
-        print(" Skipping candidate selection.")
  
     print("\n Step 4: Updating .env File")
     print("-" * 70)
@@ -209,5 +170,210 @@ def run_setup():
     print("\nNext step: Run 'python linkedin_bot_complete.py'")
     print("=" * 70)
 
+def auto_import_from_marketing():
+    print("\n" + "="*60)
+    print(" AUTO-IMPORT FROM MARKETING TABLE")
+    print("="*60)
+    
+    # Need API connection
+    env_vars = {}
+    if os.path.exists('.env'):
+        with open('.env', 'r') as f:
+            for line in f:
+                if '=' in line:
+                    k, v = line.strip().split('=', 1)
+                    env_vars[k] = v
+    
+    api_url = env_vars.get('WBL_API_URL')
+    token = env_vars.get('WBL_API_TOKEN')
+    
+    if not api_url or not token:
+        print("[ERROR] .env file missing or incomplete. Run 'Setup API Connection' first.")
+        return []
+
+    try:
+        print(" Connecting to API...")
+        marketing_url = f"{api_url}/candidate/marketing"
+        if "localhost" in api_url and not api_url.endswith("/api"):
+            marketing_url = f"{api_url}/api/candidate/marketing"
+            
+        response = requests.get(marketing_url, params={"limit": 1000}, headers={"Authorization": f"Bearer {token}"})
+        response.raise_for_status()
+        data = response.json()
+        records = data.get('data', [])
+        
+        if not records:
+            print(" No marketing candidates found.")
+            return []
+            
+        print(f" Found {len(records)} records.")
+        
+        # Discovery Phase
+        sample = records[0]
+        print("\n [SCHEMA DISCOVERY] Here is a sample record:")
+        
+        # Flatten for display
+        def print_keys(d, prefix=''):
+            keys = []
+            for k, v in d.items():
+                if isinstance(v, dict):
+                    keys.extend(print_keys(v, prefix + k + '.'))
+                else:
+                    keys.append(f"{prefix}{k} : {str(v)[:30]}...")
+            return keys
+
+        flat_keys = print_keys(sample)
+        for fk in flat_keys:
+            print(f"   - {fk}")
+            
+        print("\n Please identify the field names for LinkedIn Email and Password.")
+        print(" (Copy the exact key path from above, e.g., 'candidate.linkedin_email')")
+        
+        email_key = input(" Field for LinkedIn Email: ").strip()
+        pass_key = input(" Field for LinkedIn Password: ").strip()
+        
+        if not email_key or not pass_key:
+            print(" valid keys required.")
+            return []
+            
+        imported = []
+        
+        def get_val(d, path):
+            parts = path.split('.')
+            curr = d
+            for p in parts:
+                if isinstance(curr, dict):
+                    curr = curr.get(p)
+                else:
+                    return None
+            return curr
+
+        print("\n Importing...")
+        for rec in records:
+            email = get_val(rec, email_key)
+            pwd = get_val(rec, pass_key)
+            
+            # Try to get candidate ID automatically
+            cid = get_val(rec, 'candidate.id')
+            
+            if email and pwd:
+                cand = {
+                    "linkedin_email": email,
+                    "linkedin_password": pwd,
+                    "candidate_id": cid or 0,
+                    "keywords": ["AI Engineer hiring"] # Default keyword
+                }
+                imported.append(cand)
+                print(f"  + Queued: {email}")
+        
+        print(f"\n Found {len(imported)} candidates with credentials.")
+        confirm = input(" Add these to your config? (y/n): ").strip().lower()
+        
+        if confirm == 'y':
+            return imported
+        return []
+
+    except Exception as e:
+        print(f" [ERROR] Import failed: {e}")
+        return []
+
+def setup_multi_candidate_config():
+    print("\n" + "="*60)
+    print(" MULTI-CANDIDATE SETUP (candidates.json)")
+    print(" This allows the bot to run sequentially for multiple LinkedIn accounts.")
+    print("="*60)
+    
+    candidates = []
+    
+    # Load existing if available
+    if os.path.exists('candidates.json'):
+        try:
+            with open('candidates.json', 'r') as f:
+                candidates = json.load(f)
+            print(f" Loaded {len(candidates)} existing candidates.")
+        except:
+            pass
+            
+    while True:
+        print(f"\nCurrent candidates configured: {len(candidates)}")
+        print(" 1. Add new candidate (Manual)")
+        print(" 2. View/Remove candidates")
+        print(" 3. Save and Exit")
+        print(" 4. Auto-Import from Marketing Table")
+        print(" 0. Go Back")
+        
+        sub = input(" Enter choice: ").strip()
+        
+        if sub == '1':
+            print("\n -- Add Candidate --")
+            email = input(" LinkedIn Email: ").strip()
+            pwd = input(" LinkedIn Password: ").strip()
+            cid = input(" WBL Candidate ID (Optional, press Enter to skip): ").strip()
+            kws = input(" Keywords (comma separated, e.g. 'AI Engineer, Data Scientist'): ").strip()
+            
+            cand_obj = {
+                "linkedin_email": email,
+                "linkedin_password": pwd
+            }
+            if cid:
+                cand_obj["candidate_id"] = int(cid)
+            if kws:
+                cand_obj["keywords"] = [k.strip() for k in kws.split(',') if k.strip()]
+            
+            candidates.append(cand_obj)
+            print(" Candidate added.")
+            
+        elif sub == '2':
+            if not candidates:
+                print(" No candidates to show.")
+                continue
+            
+            for idx, c in enumerate(candidates):
+                print(f" {idx+1}. {c.get('linkedin_email')} (ID: {c.get('candidate_id', 'N/A')})")
+                
+            rem = input(" Enter number to remove (or Press Enter to go back): ").strip()
+            if rem.isdigit() and 1 <= int(rem) <= len(candidates):
+                removed = candidates.pop(int(rem)-1)
+                print(f" Removed {removed.get('linkedin_email')}")
+                
+        elif sub == '3':
+            with open('candidates.json', 'w') as f:
+                json.dump(candidates, f, indent=2)
+            print(f"\n[SUCCESS] Saved {len(candidates)} candidates to candidates.json")
+            break
+            
+        elif sub == '4':
+            new_cands = auto_import_from_marketing()
+            if new_cands:
+                candidates.extend(new_cands)
+                # Auto-save immediately to prevent data loss
+                with open('candidates.json', 'w') as f:
+                    json.dump(candidates, f, indent=2)
+                print(f" Added {len(new_cands)} candidates and saved to candidates.json.")
+
+        elif sub == '0':
+            break
+
+def main():
+    while True:
+        print("\n" + "="*60)
+        print(" LINKEDIN BOT SETUP MENU")
+        print("="*60)
+        print(" 1. Setup API Connection (.env)")
+        print(" 2. Setup Multi-Candidates (candidates.json)")
+        print(" 0. Exit")
+        
+        choice = input("\n Enter choice: ").strip()
+        
+        if choice == '1':
+            setup_api_connection()
+        elif choice == '2':
+            setup_multi_candidate_config()
+        elif choice == '0':
+            print(" Exiting.")
+            break
+        else:
+            print(" Invalid choice.")
+
 if __name__ == "__main__":
-    run_setup()
+    main()
