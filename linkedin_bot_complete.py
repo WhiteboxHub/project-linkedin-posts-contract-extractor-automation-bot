@@ -280,8 +280,9 @@ class LinkedInBotComplete:
         
         try:
             search_box = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Search']"))
+                EC.presence_of_element_located((By.XPATH, "//input[@data-view-name='search-global-typeahead-input']"))
             )
+            search_box.click() 
             search_box.clear()
             time.sleep(1)
             
@@ -770,22 +771,78 @@ class LinkedInBotComplete:
             print("=" * 60)
             
            
+            # Log activity with contact details in notes
             print("\nLogging activity to WBL backend...")
+            
+            notes = f"LinkedIn extraction: {self.posts_saved} posts saved, {self.total_saved} contacts extracted.\n\n"
+            
+            if os.path.exists(config.OUTPUT_FILE) and self.total_saved > 0:
+                try:
+                    import csv
+                    contacts_summary = []
+                    with open(config.OUTPUT_FILE, 'r', encoding='utf-8') as f:
+                        reader = csv.DictReader(f)
+                        rows = list(reader)
+                        latest_rows = rows[-self.total_saved:] if len(rows) >= self.total_saved else rows
+                        
+                        for row in latest_rows:
+                            item_details = [
+                                f"Name: {row.get('full_name', 'N/A')}",
+                                f"Email: {row.get('email', 'N/A')}",
+                                f"Phone: {row.get('phone', 'N/A')}",
+                                f"LinkedIn ID: {row.get('linkedin_id', 'N/A')}",
+                                f"Company: {row.get('company_name', 'N/A')}",
+                                f"Location: {row.get('location', 'N/A')}",
+                                f"Post URL: {row.get('post_url', 'N/A')}",
+                                f"Date: {row.get('extraction_date', 'N/A')}",
+                                f"Keyword: {row.get('search_keyword', 'N/A')}"
+                            ]
+                            contacts_summary.append(" | ".join(item_details))
+                    
+                    if contacts_summary:
+                        notes += "Extracted Contacts details:\n" + "\n".join(contacts_summary)
+                except Exception as read_err:
+                    print(f"  [Warning] Could not read CSV for notes: {read_err}")
+                    notes += f"Summary: {self.total_saved} contacts saved to {config.OUTPUT_FILE}"
+
             self.activity_logger.log_activity(
                 activity_count=self.total_saved,
-                notes=f"LinkedIn extraction: {self.posts_saved} posts saved, {self.total_saved} contacts extracted from {len(self.keywords)} keywords."
+                notes=notes
             )
-            
+        
         except KeyboardInterrupt:
             print(f"\n\n[STOPPED] Saved: {self.total_saved}")
             
             if self.total_saved > 0:
                 print("Logging partial activity...")
+                # Try to build notes for partial run too
+                notes = f"LinkedIn extraction stopped by user. {self.total_saved} contacts extracted.\n\n"
+                if os.path.exists(config.OUTPUT_FILE):
+                    try:
+                        import csv
+                        contacts_summary = []
+                        with open(config.OUTPUT_FILE, 'r', encoding='utf-8') as f:
+                            reader = csv.DictReader(f)
+                            rows = list(reader)
+                            latest_rows = rows[-self.total_saved:] if len(rows) >= self.total_saved else rows
+                            for row in latest_rows:
+                                item_details = [
+                                    f"Name: {row.get('full_name', 'N/A')}",
+                                    f"Email: {row.get('email', 'N/A')}",
+                                    f"Phone: {row.get('phone', 'N/A')}",
+                                    f"Post URL: {row.get('post_url', 'N/A')}"
+                                ]
+                                contacts_summary.append(" | ".join(item_details))
+                        if contacts_summary:
+                            notes += "Partial Contacts:\n" + "\n".join(contacts_summary)
+                    except:
+                        pass
+                        
                 self.activity_logger.log_activity(
                     activity_count=self.total_saved,
-                    notes="LinkedIn extraction stopped by user (partial run)"
+                    notes=notes
                 )
-            
+                
         except Exception as e:
             print(f"\n[ERROR] {e}")
             import traceback
