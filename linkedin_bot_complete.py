@@ -179,7 +179,7 @@ class LinkedInBotComplete:
         try:
             with open(posts_csv, 'a', newline='', encoding='utf-8') as f:
                 fieldnames = [
-                    'post_id', 'keyword', 'author_name', 'post_text_preview',
+                    'post_id', 'post_url', 'keyword', 'author_name', 'post_text_preview',
                     'profile_url', 'has_email', 'has_phone', 'is_job_post',
                     'is_ai_related', 'extraction_date'
                 ]
@@ -191,8 +191,14 @@ class LinkedInBotComplete:
                 # Truncate post text for preview
                 post_preview = post_data.get('post_text', '')[:200]
                 
+                # Construct post URL from URN if available
+                post_url = post_data.get('post_url', '')
+                if not post_url and post_id and 'urn:li:activity:' in post_id:
+                    post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
+                
                 writer.writerow({
                     'post_id': post_id,
+                    'post_url': post_url,
                     'keyword': keyword,
                     'author_name': post_data.get('name', ''),
                     'post_text_preview': post_preview,
@@ -232,6 +238,39 @@ class LinkedInBotComplete:
         time.sleep(5)
         print("Logged in!")
         
+    def apply_sort_filter(self):
+        """Apply the Sort By filter on the search results page."""
+        try:
+            print("  Applying Sort By filter...")
+            # 1. Click the "Sort by" button
+            sort_button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "searchFilter_sortBy"))
+            )
+            sort_button.click()
+            time.sleep(2)
+
+            # 2. Select the option based on config
+            sort_value = getattr(config, 'SORT_BY', 'latest').lower()
+            if sort_value == 'latest':
+                option_id = "sortBy-date_posted"
+            else: # relevance / top match
+                option_id = "sortBy-relevance"
+            
+            # Click the radio button
+            option_element = self.driver.find_element(By.ID, option_id)
+            self.driver.execute_script("arguments[0].click();", option_element)
+            time.sleep(1)
+            
+            # Click show results
+            show_results_btn = self.driver.find_element(By.XPATH, "//button[contains(@aria-label, 'Apply current filter')]")
+            show_results_btn.click()
+            time.sleep(3)
+            
+            return True
+        except Exception as e:
+            print(f"  [Warning] Could not apply sort filter via UI: {e}")
+            return False
+
     def search_posts(self, keyword):
         print(f"\n{'='*60}\nKEYWORD: {keyword}\n{'='*60}")
         
@@ -246,6 +285,7 @@ class LinkedInBotComplete:
             search_box.clear()
             time.sleep(1)
             
+            from selenium.webdriver.common.keys import Keys
             for char in keyword:
                 search_box.send_keys(char)
                 time.sleep(0.05)
@@ -260,8 +300,12 @@ class LinkedInBotComplete:
                 self.driver.get(posts_url)
                 time.sleep(5)
             
+            # Now apply our UI-based sort filter
+            self.apply_sort_filter()
+            
             return True
-        except:
+        except Exception as e:
+            print(f"  [Error searching]: {e}")
             return False
     
     def extract_email(self, text):
@@ -373,7 +417,7 @@ class LinkedInBotComplete:
         """Extract data from post. Optionally get full HTML."""
         data = {
             'name': '', 'email': '', 'phone': '', 'post_text': '',
-            'profile_url': '', 'company': '', 'location': '',
+            'profile_url': '', 'company': '', 'location': '', 'post_url': '',
             'is_relevant': False, 'has_job': False, 'post_html': ''
         }
         
@@ -543,7 +587,7 @@ class LinkedInBotComplete:
             with open(config.OUTPUT_FILE, 'a', newline='', encoding='utf-8') as f:
                 fieldnames = [
                     'full_name', 'email', 'phone', 'linkedin_id',
-                    'company_name', 'location', 'extraction_date', 'search_keyword'
+                    'company_name', 'location', 'post_url', 'extraction_date', 'search_keyword'
                 ]
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 
@@ -557,6 +601,7 @@ class LinkedInBotComplete:
                     'linkedin_id': data.get('linkedin_id', ''),
                     'company_name': data.get('company_name', ''),
                     'location': data.get('location', ''),
+                    'post_url': data.get('post_url', ''),
                     'extraction_date': datetime.now().strftime('%Y-%m-%d'),
                     'search_keyword': keyword
                 })
@@ -596,6 +641,12 @@ class LinkedInBotComplete:
             # Extract post data
             post_data = self.extract_post_data(post, get_full_html=True)
             
+            # Construct post URL
+            post_url = ""
+            if post_id and 'urn:li:activity:' in post_id:
+                post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
+            post_data['post_url'] = post_url
+
             # Initialize metadata with what we have from the post
             current_meta = {
                 'full_name': post_data.get('name', ''),
@@ -604,6 +655,7 @@ class LinkedInBotComplete:
                 'linkedin_id': post_data.get('profile_url', ''), # Use profile URL as ID
                 'company_name': post_data.get('company', ''),
                 'location': post_data.get('location', ''),
+                'post_url': post_url,
                 'extraction_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'search_keyword': keyword
             }
@@ -635,6 +687,7 @@ class LinkedInBotComplete:
                         'linkedin_id': profile_data['linkedin_id'],
                         'company_name': profile_data['company_name'],
                         'location': profile_data['location'],
+                        'post_url': post_url,
                         'extraction_date': current_meta['extraction_date'],
                         'search_keyword': keyword
                     }

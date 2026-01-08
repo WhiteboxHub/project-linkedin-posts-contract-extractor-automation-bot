@@ -12,6 +12,7 @@ LINKEDIN_PASSWORD = os.getenv('LINKEDIN_PASSWORD')
 SEARCH_KEYWORDS = os.getenv('SEARCH_KEYWORDS', 'AI AND Engineer AND hiring AND W2')
 KEYWORDS_FILE = os.getenv('KEYWORDS_FILE', 'keywords.txt')
 DATE_FILTER = os.getenv('DATE_FILTER', 'past-week')
+SORT_BY = os.getenv('SORT_BY', 'latest') # 'latest' or 'relevance'
 
 # Output Settings
 OUTPUT_FORMAT = os.getenv('OUTPUT_FORMAT', 'csv')

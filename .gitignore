@@ -7,4 +7,6 @@ chromedriver
 geckodriver
 *.log
 output.csv
-saved_posts
+chrome_profile/
+myenv/
+saved_posts/
