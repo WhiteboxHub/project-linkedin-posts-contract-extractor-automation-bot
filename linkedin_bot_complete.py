@@ -37,6 +37,7 @@ class LinkedInBotComplete:
             
         self.posts_dir = "saved_posts"  # Directory for saved posts
         self.load_processed_posts()  # Load previously processed post IDs
+        self.extracted_contacts_buffer = []  # Buffer for bulk sync to backend
         
     def load_keywords(self):
         # If keywords provided in constructor, use them
@@ -331,6 +332,7 @@ class LinkedInBotComplete:
             r'example\.com',
             r'test\.com',
             r'guruteja234@gmail\.com',
+            r'@gmail\.com',
         ]
         
         for pattern in patterns:
@@ -607,11 +609,11 @@ class LinkedInBotComplete:
                     'search_keyword': keyword
                 })
             
-            # Also save to WBL Backend
-            synced = self.activity_logger.save_vendor_contact(data, source_email=self.linkedin_email)
+            # Queue for bulk save to WBL Backend
+            self.extracted_contacts_buffer.append(data)
             
             self.total_saved += 1
-            return synced
+            return True # Successfully local-saved and queued to buffer
         except Exception as e:
             print(f"      [ERROR SAVING] {e}")
             return False
@@ -657,29 +659,31 @@ class LinkedInBotComplete:
                 'company_name': post_data.get('company', ''),
                 'location': post_data.get('location', ''),
                 'post_url': post_url,
-                'extraction_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'extraction_date': datetime.now().strftime('%Y-%m-%d'),
                 'search_keyword': keyword
             }
             
             is_extracted = False
             
+            # Normalize profile URL to prevent duplicates due to trailing slashes
+            raw_url = post_data.get('profile_url')
+            normalized_url = raw_url.strip().rstrip('/') if raw_url else ""
+            
             # Check relevance for full extraction
-            # 1. Check duplicate profile
-            # 2. Check job keywords
-            # 3. Check AI relevance
-            if (post_data['profile_url'] not in self.processed_profiles and 
+            if (normalized_url and 
+                normalized_url not in self.processed_profiles and 
                 post_data['has_job'] and 
                 post_data['is_relevant']):
                 
-                found += 1
-                print(f"  [{found}] RELEVANT CONTACT: {post_data['name'] or 'Unknown'}")
-                
                 # Get full profile data
-                if post_data['profile_url']:
-                    print(f"      Extracting full profile...")
-                    profile_data = self.extract_full_profile_data(post_data['profile_url'])
-        
-                    best_email = profile_data['email'] or post_data['email']
+                print(f"  RELEVANT POST FOUND - Extracting full profile...")
+                profile_data = self.extract_full_profile_data(post_data['profile_url'])
+    
+                best_email = profile_data['email'] or post_data['email']
+                
+                if best_email:
+                    found += 1
+                    print(f"  [{found}] RELEVANT CONTACT: {profile_data['full_name'] or post_data['name']}")
                     
                     final_data = {
                         'full_name': profile_data['full_name'] or post_data['name'],
@@ -697,7 +701,7 @@ class LinkedInBotComplete:
                     current_meta.update(final_data)
                     
                     print(f"      Name: {final_data['full_name']}")
-                    print(f"      Email: {final_data['email'] or 'NOT FOUND'}")
+                    print(f"      Email: {final_data['email']}")
                     print(f"      Phone: {final_data['phone'] or 'NOT FOUND'}")
                     print(f"      Company: {final_data['company_name'] or 'N/A'}")
                     print(f"      Location: {final_data['location'] or 'N/A'}")
@@ -707,8 +711,11 @@ class LinkedInBotComplete:
                     else:
                         print(f"      [SAVED #{self.total_saved}] (Local Only)")
                     
-                    self.processed_profiles.add(post_data['profile_url'])
+                    self.processed_profiles.add(normalized_url)
                     is_extracted = True
+                else:
+                    print(f"  [SKIPPED] No valid company email found for: {profile_data['full_name'] or post_data['name']}")
+                    self.processed_profiles.add(normalized_url)
             
             # Save ALL posts (relevant or not) with best available metadata
             if post_id:
@@ -761,6 +768,14 @@ class LinkedInBotComplete:
                 if idx < len(self.keywords):
                     time.sleep(3)
             
+            # Perform bulk sync of extracting contacts to WBL backend
+            if self.extracted_contacts_buffer:
+                print(f"\nBulk syncing {len(self.extracted_contacts_buffer)} contacts to WBL backend...")
+                self.activity_logger.bulk_save_vendor_contacts(
+                    self.extracted_contacts_buffer, 
+                    source_email=self.linkedin_email
+                )
+            
             print("\n" + "=" * 60)
             print(f"COMPLETED!")
             print(f"  - {self.posts_saved} total posts saved")
@@ -812,6 +827,14 @@ class LinkedInBotComplete:
         
         except KeyboardInterrupt:
             print(f"\n\n[STOPPED] Saved: {self.total_saved}")
+            
+            # Perform bulk sync for contacts collected before interruption
+            if self.extracted_contacts_buffer:
+                print(f"Syncing {len(self.extracted_contacts_buffer)} contacts to backend before exit...")
+                self.activity_logger.bulk_save_vendor_contacts(
+                    self.extracted_contacts_buffer, 
+                    source_email=self.linkedin_email
+                )
             
             if self.total_saved > 0:
                 print("Logging partial activity...")
