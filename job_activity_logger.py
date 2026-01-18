@@ -51,12 +51,12 @@ class JobActivityLogger:
         final_source_email = source_email or os.getenv('LINKEDIN_EMAIL')
         
         payload = {
-            "full_name": data.get('full_name') or 'Unknown',
+            "full_name": (data.get('full_name') or 'Unknown')[:250],
             "email": data.get('email'),
             "phone": data.get('phone'),
             "linkedin_id": linkedin_id,
-            "company_name": data.get('company_name'),
-            "location": data.get('location'),
+            "company_name": (data.get('company_name') or '')[:250],
+            "location": (data.get('location') or '')[:250],
             "source_email": final_source_email
         }
         
@@ -66,11 +66,93 @@ class JobActivityLogger:
                 payload["source_email"] = None
                 
             response = requests.post(endpoint, json=payload, headers=self.headers)
+            if response.status_code == 401:
+                print(f"  [ERROR] Sync failed: 401 Unauthorized. Your API token might be expired.")
             response.raise_for_status()
             return True
-        except Exception:
-           
+        except Exception as e:
+            if not isinstance(e, requests.exceptions.HTTPError) or e.response.status_code != 401:
+                print(f"  [ERROR] Sync failed: {e}")
             return False
+
+    def bulk_save_vendor_contacts(self, data_list: list, source_email: str = None) -> bool:
+        if not self.api_token or not data_list:
+            return False
+            
+        if '/api' in self.api_url:
+            base_url = self.api_url.rstrip('/')
+        else:
+            base_url = f"{self.api_url.rstrip('/')}/api"
+            
+        endpoint = f"{base_url}/vendor_contact/bulk"
+        final_source_email = source_email or os.getenv('LINKEDIN_EMAIL')
+        if not final_source_email or "@" not in final_source_email:
+            final_source_email = None
+            
+        contacts_payload = []
+        seen_contacts = set() # Track duplicates within the current batch
+        
+        for data in data_list:
+            # Extract and normalize identifiers
+            raw_email = data.get('email')
+            email = raw_email.strip().lower() if raw_email else None
+            
+            raw_linkedin_id = data.get('linkedin_id')
+            linkedin_id = self._extract_linkedin_id(raw_linkedin_id) if raw_linkedin_id else None
+            
+            # Skip if we already have this contact in the current payload
+            contact_key = (email, linkedin_id)
+            if not email and not linkedin_id:
+                continue # Skip records with no identifiers
+                
+            if contact_key in seen_contacts:
+                continue
+            seen_contacts.add(contact_key)
+            
+            # Backend expects specific fields. Truncate long strings to avoid 500 errors
+            full_name = (data.get('full_name') or 'Unknown')[:250]
+            company_name = (data.get('company_name') or '')[:250]
+            location = (data.get('location') or '')[:250]
+            
+            contacts_payload.append({
+                "full_name": full_name,
+                "email": email,
+                "phone": data.get('phone'),
+                "linkedin_id": linkedin_id,
+                "company_name": company_name,
+                "location": location,
+                "source_email": final_source_email
+            })
+            
+        if not contacts_payload:
+            print("  [INFO] No new/unique contacts to sync.")
+            return True
+            
+        payload = {"contacts": contacts_payload}
+        
+        try:
+            response = requests.post(endpoint, json=payload, headers=self.headers)
+            if response.status_code == 401:
+                print(f"  [ERROR] Bulk sync failed: 401 Unauthorized.")
+            
+            if response.status_code != 200:
+                print(f"  [ERROR] Bulk sync failed with status {response.status_code}")
+                try:
+                    # Capture detail from FastAPI error if available
+                    error_json = response.json()
+                    print(f"  [ERROR] Details: {error_json.get('detail', response.text)}")
+                except:
+                    print(f"  [ERROR] Details: {response.text}")
+            
+            response.raise_for_status()
+            result = response.json()
+            print(f"  [SUCCESS] Bulk sync complete: {result.get('inserted', 0)} inserted, {result.get('duplicates', 0)} duplicates, {result.get('failed', 0)} failed.")
+            return True
+        except Exception as e:
+            if not isinstance(e, requests.exceptions.HTTPError):
+                print(f"  [ERROR] Bulk sync failed: {e}")
+            return False
+
 
     def log_activity(
         self, 
@@ -152,7 +234,10 @@ class JobActivityLogger:
             print(f"WARNING: Job type '{self.job_unique_id}' not found in database")
             return None
         except Exception as e:
-            print(f"WARNING: Could not fetch job type ID: {e}")
+            if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 401:
+                print(f"WARNING: Could not fetch job type ID: 401 Unauthorized. Please refresh your WBL_API_TOKEN in .env")
+            else:
+                print(f"WARNING: Could not fetch job type ID: {e}")
             return None
 
 

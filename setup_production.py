@@ -21,11 +21,11 @@ def setup_api_connection():
     print("\n Step 1: Select Environment")
     print("-" * 70)
     print(f"1. Local (Default: {DEFAULT_API_URL})")
-    print("2. Production (https://whitebox-learning.com/api)")
+    print("2. Production (https://api.whitebox-learning.com/api)")
     choice = input("\nSelect environment [1/2, default: 2]: ").strip() or "1"
     
     if choice == "2":
-        api_url = "https://whitebox-learning.com/api"
+        api_url = "https://api.whitebox-learning.com/api"
     else:
         api_url = input(f"Enter API URL [default: {DEFAULT_API_URL}]: ").strip() or DEFAULT_API_URL
 
