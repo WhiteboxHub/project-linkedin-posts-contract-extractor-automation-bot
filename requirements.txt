@@ -2,3 +2,7 @@ selenium
 webdriver-manager
 python-dotenv
 requests
+undetected-chromedriver
+selenium-stealth
+duckdb
+psutil

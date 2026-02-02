@@ -21,7 +21,7 @@ OUTPUT_FILE = os.getenv('OUTPUT_FILE', 'output.csv')
 # AI/ML Related Keywords to filter posts
 AI_KEYWORDS = [
     'ai', 'artificial intelligence', 'machine learning', 'ml', 'mlops',
-    'llm', 'large language model', 'rag', 'gen ai', 'generative ai',
+    'llm', 'large language model', 'rag', 'gen ai', 'generative ai', 'agentic',
     'deep learning', 'neural network', 'nlp', 'computer vision',
     'data scientist', 'ml engineer', 'ai engineer', 'pytorch', 'tensorflow'
 ]
@@ -29,9 +29,9 @@ AI_KEYWORDS = [
 # Job-related keywords (must have at least one)
 JOB_KEYWORDS = [
     'hiring', 'job', 'position', 'opportunity', 'opening',
-    'w2', 'full time', 'full-time', 'contract', 'immediate',
-    'looking for', 'seeking', 'recruiting', 'join our team',
-    'apply', 'careers', 'employment'
+    'w2', 'c2c', 'corp-to-corp', '1099', 'bench', 'full time', 'full-time', 
+    'contract', 'immediate', 'looking for', 'seeking', 'recruiting', 
+    'join our team', 'apply', 'careers', 'employment'
 ]
 
 # Location keywords (priority for US)
