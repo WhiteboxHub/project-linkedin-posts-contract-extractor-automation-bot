@@ -37,7 +37,32 @@ class LinkedInBotComplete:
             
         self.posts_dir = "saved_posts"  # Directory for saved posts
         self.load_processed_posts()  # Load previously processed post IDs
+        self.profile_cache = {}      # Cache for profile data {url: {email, phone, etc}}
+        self.load_processed_profiles() # Load previously processed profile URLs
         self.extracted_contacts_buffer = []  # Buffer for bulk sync to backend
+        
+    def load_processed_profiles(self):
+        """Load already processed profile data from output CSV for reuse."""
+        try:
+            if os.path.exists(config.OUTPUT_FILE):
+                with open(config.OUTPUT_FILE, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        url = row.get('linkedin_id')
+                        if url:
+                            url = url.strip().rstrip('/')
+                            # Store full data for reuse
+                            self.profile_cache[url] = {
+                                'full_name': row.get('full_name', ''),
+                                'email': row.get('email', ''),
+                                'phone': row.get('phone', ''),
+                                'company_name': row.get('company_name', ''),
+                                'location': row.get('location', '')
+                            }
+                            self.processed_profiles.add(url)
+                print(f"Loaded {len(self.processed_profiles)} profiles into cache from {config.OUTPUT_FILE}")
+        except Exception as e:
+            print(f"Could not load profiles for cache: {e}")
         
     def load_keywords(self):
         # If keywords provided in constructor, use them
@@ -81,19 +106,47 @@ class LinkedInBotComplete:
         self.processed_posts.add(post_id)
     
     def extract_post_id(self, post):
-        """Extract unique post ID from LinkedIn post element."""
+        """
+        Extract unique post ID from LinkedIn post element.
+        Uses data-urn, data-activity-urn, or searches for 'Copy link to post' URL.
+        """
         try:
-            # Try to get data-urn or other unique identifier
-            post_id = post.get_attribute('data-urn')
-            if post_id:
-                return post_id
-            
-            # Fallback: try to get from activity ID
-            activity_id = post.get_attribute('data-activity-urn')
-            if activity_id:
-                return activity_id
-            
-            # Last resort: generate from post content hash
+            # 1. Direct attribute check (standard LinkedIn)
+            for attr in ['data-urn', 'data-activity-urn', 'data-id', 'componentkey']:
+                val = post.get_attribute(attr)
+                if val: return val
+                
+            # 1b. Check children for componentkey (User's pattern)
+            try:
+                elem = post.find_element(By.XPATH, ".//*[@componentkey or @data-urn]")
+                for attr in ['componentkey', 'data-urn']:
+                    val = elem.get_attribute(attr)
+                    if val: return val
+            except: pass
+
+            # 2. Check for the 'time' link which often contains the URN
+            # Usually look like "7 hours ago" or "1d"
+            try:
+                time_links = post.find_elements(By.XPATH, ".//a[contains(@href, 'feed/update/urn:li:activity:')]")
+                for link in time_links:
+                    href = link.get_attribute('href')
+                    if 'urn:li:activity:' in href:
+                        # Extract the part after activity:
+                        match = re.search(r'urn:li:activity:(\d+)', href)
+                        if match: return f"urn:li:activity:{match.group(1)}"
+            except: pass
+            try:
+                # Look for the specific text suggested by the user
+                # We search for the text because classes like '_2c6d258a' are obfuscated
+                copy_link_elem = post.find_element(By.XPATH, ".//*[contains(text(), 'Copy link to post')]")
+                if copy_link_elem:
+                    # In some views, the ID might be in a parent attribute
+                    parent = copy_link_elem.find_element(By.XPATH, "./..")
+                    val = parent.get_attribute('data-control-name') or parent.get_attribute('id')
+                    if val and 'activity' in val: return val
+            except: pass
+
+            # 4. Generate hash if truly nothing found
             post_html = post.get_attribute('outerHTML')
             if post_html:
                 return hashlib.md5(post_html[:500].encode()).hexdigest()
@@ -242,30 +295,88 @@ class LinkedInBotComplete:
     def apply_sort_filter(self):
         """Apply the Sort By filter on the search results page."""
         try:
-            print("  Applying Sort By filter...")
-            # 1. Click the "Sort by" button
-            sort_button = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.ID, "searchFilter_sortBy"))
-            )
+            # Check if already sorted (via URL)
+            current_url = self.driver.current_url
+            if 'sortBy' in current_url:
+                print("  Sort already applied via URL.")
+                return True
+
+            print("  Applying Sort By filter via UI...")
+            
+            # 1. Click the "Sort by" button - Try multiple selectors
+            sort_button = None
+            sort_selectors = [
+                (By.ID, "searchFilter_sortBy"),
+                (By.XPATH, "//button[contains(., 'Sort by')]"),
+                (By.XPATH, "//div[@role='button'][contains(., 'Sort by')]"),
+                (By.XPATH, "//button[contains(@aria-label, 'Sort by')]"),
+                (By.CSS_SELECTOR, "div[data-view-name='search-filter-top-bar-select']")
+            ]
+            
+            for selector_type, selector_val in sort_selectors:
+                try:
+                    sort_button = WebDriverWait(self.driver, 5).until(
+                        EC.element_to_be_clickable((selector_type, selector_val))
+                    )
+                    if sort_button:
+                        break
+                except:
+                    continue
+            
+            if not sort_button:
+                raise Exception("Could not find Sort button")
+
             sort_button.click()
             time.sleep(2)
 
             # 2. Select the option based on config
             sort_value = getattr(config, 'SORT_BY', 'latest').lower()
             if sort_value == 'latest':
-                option_id = "sortBy-date_posted"
+                option_selectors = [
+                    (By.ID, "sortBy-date_posted"),
+                    (By.XPATH, "//label[contains(., 'Latest')]"),
+                    (By.XPATH, "//span[contains(., 'Latest')]")
+                ]
             else: # relevance / top match
-                option_id = "sortBy-relevance"
+                option_selectors = [
+                    (By.ID, "sortBy-relevance"),
+                    (By.XPATH, "//label[contains(., 'Top match')]"),
+                    (By.XPATH, "//label[contains(., 'Relevance')]"),
+                    (By.XPATH, "//span[contains(., 'Top match')]")
+                ]
             
-            # Click the radio button
-            option_element = self.driver.find_element(By.ID, option_id)
-            self.driver.execute_script("arguments[0].click();", option_element)
+            # Click the radio button/label
+            option_clicked = False
+            for selector_type, selector_val in option_selectors:
+                try:
+                    option_element = self.driver.find_element(selector_type, selector_val)
+                    self.driver.execute_script("arguments[0].click();", option_element)
+                    option_clicked = True
+                    break
+                except:
+                    continue
+            
+            if not option_clicked:
+                raise Exception(f"Could not find sort option for: {sort_value}")
+                
             time.sleep(1)
             
             # Click show results
-            show_results_btn = self.driver.find_element(By.XPATH, "//button[contains(@aria-label, 'Apply current filter')]")
-            show_results_btn.click()
-            time.sleep(3)
+            show_results_selectors = [
+                "//button[contains(@aria-label, 'Apply current filter')]",
+                "//button[contains(., 'Show results')]",
+                "//button[contains(@class, 'search-reusable-footer__apply-button')]"
+            ]
+            
+            for selector in show_results_selectors:
+                try:
+                    show_results_btn = self.driver.find_element(By.XPATH, selector)
+                    if show_results_btn.is_displayed():
+                        show_results_btn.click()
+                        time.sleep(3)
+                        return True
+                except:
+                    continue
             
             return True
         except Exception as e:
@@ -275,11 +386,13 @@ class LinkedInBotComplete:
     def search_posts(self, keyword):
         print(f"\n{'='*60}\nKEYWORD: {keyword}\n{'='*60}")
         
-        if 'feed' not in self.driver.current_url:
+        # Ensure we are logged in/on a clean state
+        if 'linkedin.com' not in self.driver.current_url:
             self.driver.get("https://www.linkedin.com/feed/")
             time.sleep(3)
         
         try:
+            # Clear search and enter keyword
             search_box = WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, "//input[@data-view-name='search-global-typeahead-input']"))
             )
@@ -287,7 +400,6 @@ class LinkedInBotComplete:
             search_box.clear()
             time.sleep(1)
             
-            from selenium.webdriver.common.keys import Keys
             for char in keyword:
                 search_box.send_keys(char)
                 time.sleep(0.05)
@@ -296,14 +408,29 @@ class LinkedInBotComplete:
             search_box.send_keys(Keys.RETURN)
             time.sleep(5)
             
+            # Transition to 'Posts' (Content) tab
             current_url = self.driver.current_url
-            if '/search/results/all/' in current_url:
-                posts_url = current_url.replace('/search/results/all/', '/search/results/content/')
+            if '/search/results/all' in current_url or '/search/results/people' in current_url:
+                print("  Switching to 'Posts' tab...")
+                posts_url = current_url.replace('/search/results/all', '/search/results/content').replace('/search/results/people', '/search/results/content')
+                
+                # Apply sort via URL parameter
+                sort_val = getattr(config, 'SORT_BY', 'latest').lower()
+                if 'sortBy' not in posts_url:
+                    sort_param = '%5B%22date_posted%22%5D' if sort_val == 'latest' else '%5B%22relevance%22%5D'
+                    sep = '&' if '?' in posts_url else '?'
+                    posts_url += f"{sep}sortBy={sort_param}"
+                
                 self.driver.get(posts_url)
                 time.sleep(5)
             
-            # Now apply our UI-based sort filter
-            self.apply_sort_filter()
+            # Final check to ensure we are on the right tab
+            if '/search/results/content' not in self.driver.current_url:
+                try:
+                    posts_tab = self.driver.find_element(By.XPATH, "//button[contains(., 'Posts')]")
+                    posts_tab.click()
+                    time.sleep(4)
+                except: pass
             
             return True
         except Exception as e:
@@ -319,20 +446,11 @@ class LinkedInBotComplete:
             r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
         ]
         
-        # Invalid email patterns to exclude
+        # Invalid email patterns to exclude (mostly media extensions or placeholders)
         invalid_patterns = [
-            r'\.png',
-            r'\.jpg',
-            r'\.jpeg',
-            r'\.gif',
-            r'\.svg',
-            r'@2x\.',
-            r'entity-circle',
-            r'placeholder',
-            r'example\.com',
-            r'test\.com',
-            r'guruteja234@gmail\.com',
-            r'@gmail\.com',
+            r'\.png', r'\.jpg', r'\.jpeg', r'\.gif', r'\.svg',
+            r'@2x\.', r'entity-circle', r'placeholder',
+            r'example\.com', r'test\.com'
         ]
         
         for pattern in patterns:
@@ -380,39 +498,101 @@ class LinkedInBotComplete:
         return any(kw in text_lower for kw in config.AI_KEYWORDS)
     
     def get_posts(self):
-        print("  Scrolling feed...")
-        last_height = self.driver.execute_script("return document.body.scrollHeight")
+        print("  Scanning for posts...")
+        last_count = 0
+        no_new_posts_count = 0
         
-        # Increased range to ensure we find multiple batches
-        for i in range(20):
-            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2)
+    def get_posts(self):
+        print("  Scanning for posts...")
+        last_total = 0
+        no_growth_count = 0
+        
+        # Consistent aggressive scrolling
+        for i in range(1, 41): # Up to 40 scrolls
+            current_elements = self._find_post_elements()
+            total_visible = len(current_elements)
             
-           
-            try:
-                show_more_btns = self.driver.find_elements(By.XPATH, "//button[contains(., 'Show more results')]")
-                
-                for btn in show_more_btns:
-                    if btn.is_displayed():
-                        print("  Found 'Show more results' button - Clicking...")
-                        self.driver.execute_script("arguments[0].click();", btn)
-                        time.sleep(4) 
-                        break 
-            except Exception as e:
-                pass
+            # Count only NEW posts for logging
+            new_count = 0
+            for p in current_elements:
+                p_id = self.extract_post_id(p)
+                if p_id and p_id not in self.processed_posts:
+                    new_count += 1
             
-            # Check if page size increased
-            new_height = self.driver.execute_script("return document.body.scrollHeight")
-            last_height = new_height
+            if total_visible > last_total:
+                print(f"    - Scroll {i}: Found {total_visible} total ({new_count} are new)...")
+                last_total = total_visible
+                no_growth_count = 0
+            else:
+                no_growth_count += 1
+            
+            # Scroll down
+            scroll_by = 1200 if no_growth_count < 3 else 2500
+            self.driver.execute_script(f"window.scrollBy(0, {scroll_by});")
+            time.sleep(2.5)
+            
+            # Try to click "Load more" or "Show more results" every 3rd scroll
+            if i % 3 == 0:
+                try:
+                    # Specific pattern provided by user + generic fallbacks
+                    load_more_selectors = [
+                        "//button[.//span[contains(text(), 'Load more')]]",
+                        "//button[contains(., 'Load more')]",
+                        "//button[contains(., 'Show more results')]",
+                        "//button[contains(@class, 'infinite-scroll')]"
+                    ]
+                    for selector in load_more_selectors:
+                        btns = self.driver.find_elements(By.XPATH, selector)
+                        for btn in btns:
+                            if btn.is_displayed():
+                                print(f"    [Action] Clicking '{btn.text.strip()}' button...")
+                                self.driver.execute_script("arguments[0].click();", btn)
+                                time.sleep(4)
+                                # Reset growth count if we clicked something
+                                no_growth_count = 0
+                                break
+                except:
+                    pass
 
-        try:
-            posts = self.driver.find_elements(By.XPATH, "//div[contains(@class, 'feed-shared-update-v2')]")
-            if posts:
-                print(f"  Found {len(posts)} posts")
-                return posts
-        except:
-            pass
-        return []
+            # Break if we've scrolled a lot and find absolutely no more content
+            if no_growth_count >= 12:
+                break
+                
+            # If we have 60+ new posts, that's a good batch
+            if new_count >= 60:
+                break
+
+        final_posts = self._find_post_elements()
+        return final_posts
+
+    def _find_post_elements(self):
+        """Internal helper to find posts on the page."""
+        post_selectors = [
+            # High-level update containers
+            "//div[contains(@class, 'feed-shared-update-v2')]",
+            "//div[@data-view-name='feed-full-update']",
+            "//div[contains(@class, 'reusable-search__result-container')]",
+            "//li[contains(@class, 'reusable-search__result-container')]",
+            "//div[contains(@id, 'ember') and contains(@class, 'search-results__list-item')]",
+            # User provided / specific commentator tags
+            "//*[contains(@data-view-name, 'feed-commentary')]/ancestor::div[contains(@class, 'update-v2')]",
+            "//*[contains(@data-testid, 'expandable-text-box')]/ancestor::div[contains(@class, 'update-v2')]"
+        ]
+        
+        all_found = []
+        for selector in post_selectors:
+            try:
+                found = self.driver.find_elements(By.XPATH, selector)
+                if found:
+                    for p in found:
+                        if p.is_displayed() and p not in all_found:
+                            # Verify it has some content
+                            if p.text.strip():
+                                all_found.append(p)
+            except: pass
+            
+        return all_found
+
     
 
     
@@ -432,18 +612,72 @@ class LinkedInBotComplete:
                 except:
                     pass
             
+            # Try to click see more to get full content
             try:
-                name_elem = post.find_element(By.XPATH, ".//span[@aria-hidden='true']")
-                name = name_elem.text.strip()
-                if name and 0 < len(name) < 100:
-                    data['name'] = name
+                more_selectors = [
+                    ".//button[@data-testid='expandable-text-button']",
+                    ".//button[contains(@class, 'see-more')]",
+                    ".//button[contains(., 'more')]",
+                    ".//span[contains(., '...more')]"
+                ]
+                for selector in more_selectors:
+                    try:
+                        more_btns = post.find_elements(By.XPATH, selector)
+                        for btn in more_btns:
+                            if btn.is_displayed() and 'more' in btn.text.lower():
+                                self.driver.execute_script("arguments[0].click();", btn)
+                                time.sleep(0.5)
+                                break
+                    except:
+                        continue
             except:
                 pass
             
             try:
-                text_elem = post.find_element(By.XPATH, ".//div[contains(@class, 'update-components-text')]")
-                text = text_elem.text.strip()
-                if text:
+                name_selectors = [
+                    ".//span[@aria-hidden='true']",
+                    ".//span[contains(@class, 'update-components-actor__name')]",
+                    ".//span[contains(@class, 'entity-result__title-text')]",
+                    ".//div[contains(@class, 't-black')]//span",
+                    ".//div[contains(@class, 'actor')]//span",
+                    ".//p[contains(@class, 'actor')]//span"
+                ]
+                for selector in name_selectors:
+                    try:
+                        name_elem = post.find_element(By.XPATH, selector)
+                        name = name_elem.text.strip()
+                        if name and 0 < len(name) < 100:
+                            data['name'] = name
+                            break
+                    except:
+                        continue
+            except:
+                pass
+            
+            try:
+                text_elem = None
+                text_selectors = [
+                    ".//p[@data-view-name='feed-commentary']//span[@data-testid='expandable-text-box']",
+                    ".//div[@data-view-name='feed-commentary']//span[@data-testid='expandable-text-box']",
+                    ".//p[@data-view-name='feed-commentary']",
+                    ".//div[@data-view-name='feed-commentary']",
+                    ".//span[@data-testid='expandable-text-box']",
+                    ".//div[contains(@class, 'update-components-text')]",
+                    ".//span[contains(@class, 'break-words')]",
+                    ".//div[contains(@class, 'feed-shared-update-v2__description')]",
+                    ".//div[contains(@class, 'feed-shared-update-v2__commentary')]",
+                    ".//div[@data-view-name='feed-full-update']//span"
+                ]
+                for selector in text_selectors:
+                    try:
+                        text_elem = post.find_element(By.XPATH, selector)
+                        if text_elem and text_elem.text.strip():
+                            break
+                    except:
+                        continue
+                        
+                if text_elem:
+                    text = text_elem.text.strip()
                     # Clean the text using our helper method
                     cleaned = self.clean_post_text(text)
                     data['post_text'] = cleaned.encode('ascii', 'ignore').decode('ascii')
@@ -454,6 +688,13 @@ class LinkedInBotComplete:
             data['is_relevant'] = self.is_ai_tech_related(data['post_text'])
             data['has_job'] = self.has_job_keywords(data['post_text'])
             
+            if not data['is_relevant'] or not data['has_job']:
+                rel_str = "Yes" if data['is_relevant'] else "No"
+                job_str = "Yes" if data['has_job'] else "No"
+                # Internal debug print, will be seen in logs
+                # print(f"      [Debug] Relevant: {rel_str}, Job: {job_str}")
+                pass
+            
             
             if data['post_text']:
                 data['email'] = self.extract_email(data['post_text'])
@@ -461,10 +702,21 @@ class LinkedInBotComplete:
             
             
             try:
-                link = post.find_element(By.XPATH, ".//a[contains(@href, '/in/')]")
-                url = link.get_attribute('href')
-                if url and '/in/' in url:
-                    data['profile_url'] = url.split('?')[0]
+                link_selectors = [
+                    ".//a[contains(@href, '/in/')]",
+                    ".//a[contains(@class, 'update-components-actor__container-link')]",
+                    ".//a[contains(@class, 'app-aware-link') and contains(@href, '/in/')]",
+                    ".//a[contains(@data-test-app-aware-link, '') and contains(@href, '/in/')]"
+                ]
+                for selector in link_selectors:
+                    try:
+                        link = post.find_element(By.XPATH, selector)
+                        url = link.get_attribute('href')
+                        if url and '/in/' in url:
+                            data['profile_url'] = url.split('?')[0]
+                            break
+                    except:
+                        continue
             except:
                 pass
         except:
@@ -587,6 +839,7 @@ class LinkedInBotComplete:
         file_exists = os.path.exists(config.OUTPUT_FILE)
         
         try:
+            # Save local first
             with open(config.OUTPUT_FILE, 'a', newline='', encoding='utf-8') as f:
                 fieldnames = [
                     'full_name', 'email', 'phone', 'linkedin_id',
@@ -609,11 +862,11 @@ class LinkedInBotComplete:
                     'search_keyword': keyword
                 })
             
-            # Queue for bulk save to WBL Backend
+            # Queue for bulk sync to WBL Backend
             self.extracted_contacts_buffer.append(data)
             
             self.total_saved += 1
-            return True # Successfully local-saved and queued to buffer
+            return True
         except Exception as e:
             print(f"      [ERROR SAVING] {e}")
             return False
@@ -670,52 +923,75 @@ class LinkedInBotComplete:
             normalized_url = raw_url.strip().rstrip('/') if raw_url else ""
             
             # Check relevance for full extraction
-            if (normalized_url and 
-                normalized_url not in self.processed_profiles and 
-                post_data['has_job'] and 
-                post_data['is_relevant']):
-                
-                # Get full profile data
-                print(f"  RELEVANT POST FOUND - Extracting full profile...")
-                profile_data = self.extract_full_profile_data(post_data['profile_url'])
-    
-                best_email = profile_data['email'] or post_data['email']
-                
-                if best_email:
-                    found += 1
-                    print(f"  [{found}] RELEVANT CONTACT: {profile_data['full_name'] or post_data['name']}")
+            is_relevant = post_data['has_job'] and post_data['is_relevant']
+            
+            if normalized_url and is_relevant:
+                # CASE 1: New post, but we already have contact info for this person
+                if normalized_url in self.profile_cache:
+                    cached = self.profile_cache[normalized_url]
+                    print(f"    [Cache Match] Re-extracting new post from: {cached['full_name']}")
                     
                     final_data = {
-                        'full_name': profile_data['full_name'] or post_data['name'],
-                        'email': best_email,
-                        'phone': profile_data['phone'] or post_data['phone'],
-                        'linkedin_id': profile_data['linkedin_id'],
-                        'company_name': profile_data['company_name'],
-                        'location': profile_data['location'],
+                        'full_name': cached['full_name'],
+                        'email': cached['email'],
+                        'phone': cached['phone'],
+                        'linkedin_id': normalized_url,
+                        'company_name': cached['company_name'],
+                        'location': cached['location'],
                         'post_url': post_url,
                         'extraction_date': current_meta['extraction_date'],
                         'search_keyword': keyword
                     }
-                    
-                    # update current_meta with better data
-                    current_meta.update(final_data)
-                    
-                    print(f"      Name: {final_data['full_name']}")
-                    print(f"      Email: {final_data['email']}")
-                    print(f"      Phone: {final_data['phone'] or 'NOT FOUND'}")
-                    print(f"      Company: {final_data['company_name'] or 'N/A'}")
-                    print(f"      Location: {final_data['location'] or 'N/A'}")
-                    
-                    if self.save_contact(final_data, keyword):
-                        print(f"      [SAVED #{self.total_saved}] ✓ (Synced to Backend)")
-                    else:
-                        print(f"      [SAVED #{self.total_saved}] (Local Only)")
-                    
-                    self.processed_profiles.add(normalized_url)
+                    self.save_contact(final_data, keyword)
                     is_extracted = True
-                else:
-                    print(f"  [SKIPPED] No valid company email found for: {profile_data['full_name'] or post_data['name']}")
-                    self.processed_profiles.add(normalized_url)
+                    found += 1
+                
+                # CASE 2: New post and brand new person
+                elif normalized_url not in self.processed_profiles:
+                    print(f"  NEW RELEVANT POST FOUND - Extracting full profile...")
+                    profile_data = self.extract_full_profile_data(post_data['profile_url'])
+        
+                    best_email = profile_data['email'] or post_data['email']
+                    
+                    if best_email:
+                        found += 1
+                        print(f"  [{found}] NEW CONTACT: {profile_data['full_name'] or post_data['name']}")
+                        
+                        final_data = {
+                            'full_name': profile_data['full_name'] or post_data['name'],
+                            'email': best_email,
+                            'phone': profile_data['phone'] or post_data['phone'],
+                            'linkedin_id': profile_data['linkedin_id'],
+                            'company_name': profile_data['company_name'],
+                            'location': profile_data['location'],
+                            'post_url': post_url,
+                            'extraction_date': current_meta['extraction_date'],
+                            'search_keyword': keyword
+                        }
+                        
+                        current_meta.update(final_data)
+                        self.save_contact(final_data, keyword)
+                        
+                        # Add to cache to avoid re-visiting this profile in this run
+                        self.profile_cache[normalized_url] = final_data
+                        self.processed_profiles.add(normalized_url)
+                        
+                        is_extracted = True
+                    else:
+                        print(f"  [SKIPPED] No email found for: {profile_data['full_name'] or post_data['name']}")
+                        self.processed_profiles.add(normalized_url)
+            else:
+                if not normalized_url:
+                    # Skip silent for posts with no profile link (often ads or broken)
+                    pass
+                elif normalized_url in self.processed_profiles:
+                    # print(f"      [Skip] Already processed: {normalized_url}")
+                    pass
+                elif not is_relevant:
+                    reasons = []
+                    if not post_data['has_job']: reasons.append("No job keywords")
+                    if not post_data['is_relevant']: reasons.append("Not AI related")
+                    print(f"      [Skip] {', '.join(reasons)} (ID: {post_id[:8]})")
             
             # Save ALL posts (relevant or not) with best available metadata
             if post_id:

@@ -57,7 +57,8 @@ class JobActivityLogger:
             "linkedin_id": linkedin_id,
             "company_name": (data.get('company_name') or '')[:250],
             "location": (data.get('location') or '')[:250],
-            "source_email": final_source_email
+            "source_email": final_source_email,
+            "job_source": "LinkedIn Job Post Extractor Bot"
         }
         
         try:
@@ -121,7 +122,8 @@ class JobActivityLogger:
                 "linkedin_id": linkedin_id,
                 "company_name": company_name,
                 "location": location,
-                "source_email": final_source_email
+                "source_email": final_source_email,
+                "job_source": "LinkedIn Job Post Extractor Bot"
             })
             
         if not contacts_payload:
