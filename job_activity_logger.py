@@ -9,6 +9,11 @@ load_dotenv()
 
 
 class JobActivityLogger:    
+    """
+    Sole interface for backend communication with the WBL API.
+    Handles all HTTP requests, payload normalization, and error handling for synchronization.
+    No browser automation or business logic should reside here.
+    """
     
     def __init__(self):
         self.api_url = os.getenv('WBL_API_URL', '')
@@ -71,9 +76,23 @@ class JobActivityLogger:
                 print(f"  [ERROR] Sync failed: 401 Unauthorized. Your API token might be expired.")
             response.raise_for_status()
             return True
+        except requests.exceptions.RequestException as e:
+            # Log specific exception type and details
+            exc_type = type(e).__name__
+            error_msg = f"  [ERROR] Sync failed ({exc_type}): {e}"
+            
+            # Print response body if available for easier debugging
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                    print(f"{error_msg}\n   Response Data: {error_detail}")
+                except:
+                    print(f"{error_msg}\n   Response Text: {e.response.text}")
+            else:
+                print(error_msg)
+            return False
         except Exception as e:
-            if not isinstance(e, requests.exceptions.HTTPError) or e.response.status_code != 401:
-                print(f"  [ERROR] Sync failed: {e}")
+            print(f"  [ERROR] Sync failed (Unexpected): {e}")
             return False
 
     def bulk_save_vendor_contacts(self, data_list: list, source_email: str = None) -> bool:

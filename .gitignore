@@ -10,3 +10,5 @@ output.csv
 chrome_profile/
 myenv/
 saved_posts/
+venv/
+*.db
