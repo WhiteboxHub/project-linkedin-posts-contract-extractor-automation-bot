@@ -163,7 +163,7 @@ class ScraperModule:
                 search_box.send_keys(char)
                 time.sleep(0.05)
             
-            time.sleep(random.uniform(1.5, 3.0))
+            time.sleep(random.uniform(2.5, 5.0))
             search_box.send_keys(Keys.RETURN)
             time.sleep(random.uniform(4.0, 6.5))
             
@@ -179,13 +179,13 @@ class ScraperModule:
                     posts_url += f"{sep}sortBy={sort_param}"
                 
                 self.driver.get(posts_url)
-                time.sleep(random.uniform(4.0, 6.0))
+                time.sleep(random.uniform(4.0, 7.0))
             
             if '/search/results/content' not in self.driver.current_url:
                 try:
                     posts_tab = self.driver.find_element(By.XPATH, config.SELECTORS['search']['posts_tab_button'])
                     posts_tab.click()
-                    time.sleep(4)
+                    time.sleep(5)
                 except: pass
             
             # Final verification: Ensure sort is applied (UI fallback)

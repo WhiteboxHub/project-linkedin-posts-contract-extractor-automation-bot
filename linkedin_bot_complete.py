@@ -28,11 +28,12 @@ class LinkedInBotComplete:
     Controls the bot's workflow, manages driver life-cycle, handles local storage (CSV/Files),
     and coordinates between the ScraperModule, ProcessorModule, and JobActivityLogger.
     """
-    def __init__(self, email=None, password=None, candidate_id=None, keywords=None):
+    def __init__(self, email=None, password=None, candidate_id=None, keywords=None, chrome_profile=None):
         self.driver = None
         self.linkedin_email = email or config.LINKEDIN_EMAIL
         self.linkedin_password = password or config.LINKEDIN_PASSWORD
         self.candidate_id = candidate_id
+        self.chrome_profile = chrome_profile or config.CHROME_PROFILE_NAME
         self.processed_profiles = set()
         self.processed_posts = set()  # Track post IDs to avoid duplicates
         self.keywords = keywords if keywords else []
@@ -254,6 +255,10 @@ class LinkedInBotComplete:
         print("Initializing Undetected Chrome...")
         chrome_options = uc.ChromeOptions()
         chrome_options.add_argument("--start-maximized")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--ignore-certificate-errors")
+        chrome_options.add_argument("--disable-popup-blocking")
         
         # Load existing Chrome profile if configured
         if config.CHROME_PROFILE_PATH:
@@ -266,9 +271,9 @@ class LinkedInBotComplete:
                 import sys
                 sys.exit(1)
 
-            print(f"  Using Chrome profile: {config.CHROME_PROFILE_NAME}")
+            print(f"  Using Chrome profile: {self.chrome_profile}")
             chrome_options.add_argument(f"--user-data-dir={config.CHROME_PROFILE_PATH}")
-            chrome_options.add_argument(f"--profile-directory={config.CHROME_PROFILE_NAME}")
+            chrome_options.add_argument(f"--profile-directory={self.chrome_profile}")
         
         # Proxy Support
         if config.PROXY_URL:
@@ -277,7 +282,11 @@ class LinkedInBotComplete:
         
         # undetected_chromedriver handles its own driver management
         try:
-            self.driver = uc.Chrome(options=chrome_options)
+            # Force specific version if provided in config
+            version = int(config.CHROME_VERSION) if config.CHROME_VERSION else None
+            
+            # use_subprocess=True helps with "cannot connect to chrome" errors on Windows
+            self.driver = uc.Chrome(options=chrome_options, version_main=version, use_subprocess=True)
             
             # Apply selenium-stealth to further mask automation signals
             stealth(self.driver,
@@ -510,7 +519,7 @@ class LinkedInBotComplete:
                 self.posts_saved += 1
                 posts_processed += 1
 
-            time.sleep(random.uniform(1.5, 4.0))
+            time.sleep(random.uniform(1.5, 8.0))
         
         print(f"  Keyword complete: {posts_processed} posts saved, {found} contacts extracted")
         return found
@@ -539,7 +548,7 @@ class LinkedInBotComplete:
             # Check if we are already logged in via profile
             print("Checking session...")
             self.driver.get("https://www.linkedin.com/feed/")
-            time.sleep(random.uniform(4.0, 6.5))
+            time.sleep(random.uniform(4.0, 8.5))
             
             if "login" in self.driver.current_url or "checkpoint" in self.driver.current_url:
                 print("Session not found or expired. Logging in...")
@@ -561,7 +570,7 @@ class LinkedInBotComplete:
                 self.process_keyword(keyword)
                 
                 if idx < len(self.keywords):
-                    time.sleep(random.uniform(2.5, 5.0))
+                    time.sleep(random.uniform(2.5, 7.0))
             
             # Perform bulk sync of extracting contacts to WBL backend
             if self.extracted_contacts_buffer:
@@ -686,7 +695,7 @@ class LinkedInBotComplete:
                 print("="*60)
                 
                 print("\nClosing...")
-                time.sleep(3)
+                time.sleep(8)
                 self.driver.quit()
 
 
@@ -722,7 +731,8 @@ if __name__ == "__main__":
                             email=cand.get('linkedin_email'),
                             password=cand.get('linkedin_password'),
                             candidate_id=cand.get('candidate_id'),
-                            keywords=cand.get('keywords', [])
+                            keywords=cand.get('keywords', []),
+                            chrome_profile=cand.get('chrome_profile')
                         )
                         bot.run()
                         

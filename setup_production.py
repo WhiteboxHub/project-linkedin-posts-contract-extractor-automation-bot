@@ -140,8 +140,10 @@ def setup_api_connection():
 
      
         def update_key(content, key, value):
+            # Escape backslashes for the replacement string in re.sub
+            escaped_value = value.replace('\\', '\\\\')
             if f"{key}=" in content:
-                return re.sub(rf'^{key}=.*', f'{key}={value}', content, flags=re.MULTILINE)
+                return re.sub(rf'^{key}=.*', f'{key}={escaped_value}', content, flags=re.MULTILINE)
             else:
                 return content.rstrip() + f"\n{key}={value}\n"
 
@@ -270,11 +272,12 @@ def auto_import_from_marketing():
         for fk in flat_keys:
             print(f"   - {fk}")
             
-        print("\n Please identify the field names for LinkedIn Email and Password.")
+        print("\n Please identify the field names for LinkedIn Email, Password, and Profile folder name.")
         print(" (Copy the exact key path from above, e.g., 'candidate.linkedin_email')")
         
         email_key = input(" Field for LinkedIn Email: ").strip()
         pass_key = input(" Field for LinkedIn Password: ").strip()
+        profile_key = input(" Field for Chrome Profile (Enter to skip): ").strip()
         
         if not email_key or not pass_key:
             print(" valid keys required.")
@@ -283,6 +286,7 @@ def auto_import_from_marketing():
         imported = []
         
         def get_val(d, path):
+            if not path: return None
             parts = path.split('.')
             curr = d
             for p in parts:
@@ -296,6 +300,7 @@ def auto_import_from_marketing():
         for rec in records:
             email = get_val(rec, email_key)
             pwd = get_val(rec, pass_key)
+            profile = get_val(rec, profile_key)
             
             # Try to get candidate ID automatically
             cid = get_val(rec, 'candidate.id')
@@ -305,6 +310,7 @@ def auto_import_from_marketing():
                     "linkedin_email": email,
                     "linkedin_password": pwd,
                     "candidate_id": cid or 0,
+                    "chrome_profile": profile or "Default",
                     "keywords": ["AI Engineer hiring"] # Default keyword
                 }
                 imported.append(cand)
@@ -353,6 +359,7 @@ def setup_multi_candidate_config():
             email = input(" LinkedIn Email: ").strip()
             pwd = input(" LinkedIn Password: ").strip()
             cid = input(" WBL Candidate ID (Optional, press Enter to skip): ").strip()
+            cp = input(" Chrome Profile Name (Optional, e.g. 'Profile 1', press Enter for Default): ").strip()
             kws = input(" Keywords (comma separated, e.g. 'AI Engineer, Data Scientist'): ").strip()
             
             cand_obj = {
@@ -361,6 +368,8 @@ def setup_multi_candidate_config():
             }
             if cid:
                 cand_obj["candidate_id"] = int(cid)
+            if cp:
+                cand_obj["chrome_profile"] = cp
             if kws:
                 cand_obj["keywords"] = [k.strip() for k in kws.split(',') if k.strip()]
             

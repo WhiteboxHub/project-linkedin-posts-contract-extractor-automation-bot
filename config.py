@@ -51,6 +51,8 @@ USA_KEYWORDS = [
 CHROME_PROFILE_PATH = os.getenv('CHROME_PROFILE_PATH')
 # Name of the profile folder (e.g., "Default" or "Profile 1")
 CHROME_PROFILE_NAME = os.getenv('CHROME_PROFILE_NAME', 'Default')
+# Force a specific Chrome version for the driver (e.g., 144)
+CHROME_VERSION = os.getenv('CHROME_VERSION') # Leave empty for auto-detection
 
 # LinkedIn Selectors
 SELECTORS = {

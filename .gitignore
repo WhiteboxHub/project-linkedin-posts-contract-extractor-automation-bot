@@ -12,3 +12,4 @@ myenv/
 saved_posts/
 venv/
 *.db
+.json/
