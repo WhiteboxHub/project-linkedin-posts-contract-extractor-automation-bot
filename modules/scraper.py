@@ -11,6 +11,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
 from functools import wraps
 from modules.processor import ProcessorModule
+from modules.logger import logger
 import config
 
 def retry_on_failure(retries=3, delay=5):
@@ -24,15 +25,15 @@ def retry_on_failure(retries=3, delay=5):
                     result = func(*args, **kwargs)
                     if result: # If method returns True/truthy on success
                         return result
-                    print(f"  [Retry {i+1}/{retries}] Method {func.__name__} returned False, retrying in {delay}s...")
+                    logger.warning(f"Method {func.__name__} returned False, retrying in {delay}s... ({i+1}/{retries})", extra={"step_name": func.__name__})
                 except Exception as e:
                     last_exception = e
-                    print(f"  [Retry {i+1}/{retries}] Method {func.__name__} failed with error: {e}. Retrying in {delay}s...")
+                    logger.warning(f"Method {func.__name__} failed with error: {e}. Retrying in {delay}s... ({i+1}/{retries})", extra={"step_name": func.__name__}, exc_info=True)
                 
                 time.sleep(delay)
                 # Optional: Refresh page or handle "Something went wrong" here if needed
             
-            print(f"  [Error] Method {func.__name__} failed after {retries} attempts.")
+            logger.error(f"Method {func.__name__} failed after {retries} attempts.", extra={"step_name": func.__name__})
             if last_exception:
                 raise last_exception
             return False
@@ -40,8 +41,9 @@ def retry_on_failure(retries=3, delay=5):
     return decorator
 
 class ScraperModule:
-    def __init__(self, driver):
-        self.driver = driver
+    def __init__(self, browser_manager):
+        self.browser_manager = browser_manager
+        self.driver = browser_manager.get_driver()
         self.processor = ProcessorModule()
 
     def validate_selectors(self):
@@ -49,36 +51,45 @@ class ScraperModule:
         Verify that critical UI elements are present and identifiable.
         This provides an early fail-safe if LinkedIn's core structure has changed.
         """
-        print(" Validating LinkedIn UI selectors...")
+        logger.info("Validating LinkedIn UI selectors...", extra={"step_name": "Initialization"})
         
         # We need to be on a LinkedIn page that has the search bar (usually home feed)
+        # We need to be on a LinkedIn page that has the search bar (usually home feed)
         if "linkedin.com/feed" not in self.driver.current_url:
-            self.driver.get("https://www.linkedin.com/feed/")
+            if not self.browser_manager.navigate("https://www.linkedin.com/feed/"):
+                return False
             time.sleep(random.uniform(2.5, 4.0))
 
         critical_checks = [
             ("Search Input", By.XPATH, config.SELECTORS['search']['global_input']),
+            ("Feed Post Container", By.XPATH, config.SELECTORS['post']['containers']),
         ]
         
         missing = []
-        for name, by, selector in critical_checks:
-            try:
-                WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((by, selector))
-                )
-                print(f"   [✓] {name} found.")
-            except:
-                print(f"   [✗] {name} NOT found using: {selector}")
+        for name, by, selectors in critical_checks:
+            found = False
+            # Ensure selectors is a list
+            if isinstance(selectors, str): selectors = [selectors]
+            
+            for selector in selectors:
+                try:
+                    WebDriverWait(self.driver, 5).until( # Reduced timeout for fallbacks
+                        EC.presence_of_element_located((by, selector))
+                    )
+                    logger.info(f"{name} found (using: {selector})", extra={"step_name": "Initialization"})
+                    found = True
+                    break
+                except: continue
+            
+            if not found:
+                logger.error(f"{name} NOT found. Checked {len(selectors)} selector(s).", extra={"step_name": "Initialization"})
                 missing.append(name)
         
         if missing:
-            print("\n" + "!"*80)
-            print(f"FATAL ERROR: The following critical UI elements were not found: {', '.join(missing)}")
-            print("LinkedIn may have updated its UI. Please check the selectors in config.py.")
-            print("!"*80 + "\n")
+            logger.critical(f"FATAL ERROR: The following critical UI elements were not found: {', '.join(missing)}", extra={"step_name": "Initialization"})
             return False
             
-        print("  UI validation successful.\n")
+        logger.info("UI validation successful.", extra={"step_name": "Initialization"})
         return True
 
     def extract_post_id(self, post):
@@ -90,29 +101,50 @@ class ScraperModule:
                 if val: return val
                 
             # 1b. Check children for componentkey
+            # 1b. Check children for componentkey
             try:
-                elem = post.find_element(By.XPATH, ".//*[@componentkey or @data-urn]")
-                for attr in ['componentkey', 'data-urn']:
-                    val = elem.get_attribute(attr)
-                    if val: return val
+                selectors = config.SELECTORS['post']['extract_id']['urn_component']
+                if isinstance(selectors, str): selectors = [selectors]
+                
+                for xpath in selectors:
+                    try:
+                        elem = post.find_element(By.XPATH, xpath)
+                        for attr in ['componentkey', 'data-urn', 'data-activity-urn']:
+                            val = elem.get_attribute(attr)
+                            if val: return val
+                    except: continue
             except: pass
 
             # 2. Check for the 'time' link which often contains the URN
             try:
-                time_links = post.find_elements(By.XPATH, ".//a[contains(@href, 'feed/update/urn:li:activity:')]")
-                for link in time_links:
-                    href = link.get_attribute('href')
-                    if 'urn:li:activity:' in href:
-                        match = re.search(r'urn:li:activity:(\d+)', href)
-                        if match: return f"urn:li:activity:{match.group(1)}"
+                selectors = config.SELECTORS['post']['extract_id']['time_link']
+                if isinstance(selectors, str): selectors = [selectors]
+                
+                for xpath in selectors:
+                    try:
+                        time_links = post.find_elements(By.XPATH, xpath)
+                        for link in time_links:
+                            href = link.get_attribute('href')
+                            if 'urn:li:activity:' in href:
+                                match = re.search(r'urn:li:activity:(\d+)', href)
+                                if match: return f"urn:li:activity:{match.group(1)}"
+                            elif '/feed/update/' in href: # Fallback for non-urn format if any
+                                return href.split('/')[-2]
+                    except: continue
             except: pass
 
             try:
-                copy_link_elem = post.find_element(By.XPATH, ".//*[contains(text(), 'Copy link to post')]")
-                if copy_link_elem:
-                    parent = copy_link_elem.find_element(By.XPATH, "./..")
-                    val = parent.get_attribute('data-control-name') or parent.get_attribute('id')
-                    if val and 'activity' in val: return val
+                selectors = config.SELECTORS['post']['extract_id']['copy_link_text']
+                if isinstance(selectors, str): selectors = [selectors]
+                
+                for xpath in selectors:
+                    try:
+                        copy_link_elem = post.find_element(By.XPATH, xpath)
+                        if copy_link_elem:
+                            parent = copy_link_elem.find_element(By.XPATH, "./..")
+                            val = parent.get_attribute('data-control-name') or parent.get_attribute('id')
+                            if val and 'activity' in val: return val
+                    except: continue
             except: pass
 
             # 4. Generate hash if truly nothing found
@@ -145,16 +177,30 @@ class ScraperModule:
     @retry_on_failure(retries=3, delay=5)
     def search_posts(self, keyword):
         """Search for posts on LinkedIn for a given keyword."""
-        print(f"\n{'='*60}\nKEYWORD: {keyword}\n{'='*60}")
+        logger.info(f"Searching for keyword: {keyword}", extra={"step_name": "Search"})
         
         if 'linkedin.com' not in self.driver.current_url:
-            self.driver.get("https://www.linkedin.com/feed/")
+            if not self.browser_manager.navigate("https://www.linkedin.com/feed/"):
+                return False
             time.sleep(random.uniform(2.5, 4.5))
         
         try:
-            search_box = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, config.SELECTORS['search']['global_input']))
-            )
+            selectors = config.SELECTORS['search']['global_input']
+            if isinstance(selectors, str): selectors = [selectors]
+            
+            search_box = None
+            for selector in selectors:
+                try:
+                    search_box = WebDriverWait(self.driver, 5).until(
+                        EC.presence_of_element_located((By.XPATH, selector))
+                    )
+                    break
+                except: continue
+                
+            if not search_box:
+                logger.error("Could not find search box.", extra={"step_name": "Search"})
+                return False
+
             search_box.click() 
             search_box.clear()
             time.sleep(1)
@@ -169,7 +215,7 @@ class ScraperModule:
             
             current_url = self.driver.current_url
             if '/search/results/all' in current_url or '/search/results/people' in current_url:
-                print("  Switching to 'Posts' tab...")
+                logger.info("Switching to 'Posts' tab...", extra={"step_name": "Search"})
                 posts_url = current_url.replace('/search/results/all', '/search/results/content').replace('/search/results/people', '/search/results/content')
                 
                 sort_val = getattr(config, 'SORT_BY', 'latest').lower()
@@ -178,65 +224,101 @@ class ScraperModule:
                     sep = '&' if '?' in posts_url else '?'
                     posts_url += f"{sep}sortBy={sort_param}"
                 
-                self.driver.get(posts_url)
+                if not self.browser_manager.navigate(posts_url):
+                    return False
                 time.sleep(random.uniform(4.0, 7.0))
             
             if '/search/results/content' not in self.driver.current_url:
                 try:
-                    posts_tab = self.driver.find_element(By.XPATH, config.SELECTORS['search']['posts_tab_button'])
-                    posts_tab.click()
+                    # Use robust click for tab switching
+                    self.browser_manager.wait_click(config.SELECTORS['search']['posts_tab_button'], timeout=5)
                     time.sleep(5)
                 except: pass
             
             # Final verification: Ensure sort is applied (UI fallback)
             if 'sortBy' not in self.driver.current_url:
                 if not self.apply_sort_filter():
-                    print(f"  [Critical Failure] Failed to apply sort filter after 3 attempts. Moving to next keyword.")
+                    logger.critical("Failed to apply sort filter after 3 attempts. Moving to next keyword.", extra={"step_name": "Search"})
                     return False
             
             return True
         except Exception as e:
-            print(f"  [Error searching]: {e}")
+            logger.error(f"Error searching: {e}", extra={"step_name": "Search"}, exc_info=True)
             return False
 
     @retry_on_failure(retries=3, delay=5)
     def apply_sort_filter(self):
         """Apply the Sort By filter on the search results page via UI if URL parameter failed."""
         try:
-            print("  Applying Sort By filter via UI...")
+            logger.info("Applying Sort By filter via UI...", extra={"step_name": "Search"})
             
             # Click the "Sort by" button
-            sort_button = WebDriverWait(self.driver, 5).until(
-                EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Sort by')]"))
-            )
-            sort_button.click()
+            selectors = config.SELECTORS['search']['sort_filter']['dropdown_button']
+            if isinstance(selectors, str): selectors = [selectors]
+            
+            sort_btn_found = False
+            for selector in selectors:
+                if self.browser_manager.wait_click(selector, timeout=4):
+                    sort_btn_found = True
+                    break
+            
+            if not sort_btn_found:
+                logger.warning("Sort button not found.", extra={"step_name": "Search"})
+                return False
+                
             time.sleep(random.uniform(1.5, 3.0))
 
             # Select the option based on config
             sort_value = getattr(config, 'SORT_BY', 'latest').lower()
             if sort_value == 'latest':
-                option_xpath = "//label[contains(., 'Latest')]"
+                option_selectors = config.SELECTORS['search']['sort_filter']['option_latest']
             else:
-                option_xpath = "//label[contains(., 'Top match')] | //label[contains(., 'Relevance')]"
+                option_selectors = config.SELECTORS['search']['sort_filter']['option_relevance']
             
-            option_element = self.driver.find_element(By.XPATH, option_xpath)
-            self.driver.execute_script("arguments[0].click();", option_element)
+            if isinstance(option_selectors, str): option_selectors = [option_selectors]
+            
+            option_clicked = False
+            for selector in option_selectors:
+                # Try simple click first via robust waiter
+                if self.browser_manager.wait_click(selector, timeout=3):
+                    option_clicked = True
+                    break
+                
+                # Fallback to JS click if standard click fails (often needed for dropdown items)
+                try:
+                    option_element = self.driver.find_element(By.XPATH, selector)
+                    self.driver.execute_script("arguments[0].click();", option_element)
+                    option_clicked = True
+                    break
+                except: continue
+            
+            if not option_clicked:
+                 logger.warning(f"Sort option '{sort_value}' not found.", extra={"step_name": "Search"})
+
             time.sleep(1)
             
             # Click show results
-            show_results_btn = self.driver.find_element(By.XPATH, "//button[contains(., 'Show results')]")
-            show_results_btn.click()
+            show_selectors = config.SELECTORS['search']['sort_filter']['show_results_button']
+            if isinstance(show_selectors, str): show_selectors = [show_selectors]
+            
+            for selector in show_selectors:
+                try:
+                    show_results_btn = self.driver.find_element(By.XPATH, selector)
+                    show_results_btn.click()
+                    break
+                except: continue
+                
             time.sleep(random.uniform(2.5, 4.5))
             
             return True
         except Exception as e:
-            print(f"  [Warning] Could not apply sort filter via UI: {e}")
+            logger.warning(f"Could not apply sort filter via UI: {e}", extra={"step_name": "Search"}, exc_info=True)
             return False
 
     def get_posts(self, processed_posts=None):
         """Scan and collect post elements from the search result page."""
         processed_posts = processed_posts or set()
-        print("  Scanning for posts...")
+        logger.info("Scanning for posts...", extra={"step_name": "Collection"})
         last_total = 0
         last_height = self.driver.execute_script("return document.body.scrollHeight")
         no_growth_count = 0
@@ -272,7 +354,7 @@ class ScraperModule:
                 if has_element_growth: growth_msg.append(f"posts {last_total}->{total_visible}")
                 if has_height_growth: growth_msg.append(f"height {last_height}->{current_height}")
                 
-                print(f"    - Scroll {i}: Growth detected ({', '.join(growth_msg)}). Found {new_total} new posts so far.")
+                logger.info(f"Scroll {i}: Growth detected ({', '.join(growth_msg)}). Found {new_total} new posts so far.", extra={"step_name": "Collection"})
                 last_total = total_visible
                 last_height = current_height
                 no_growth_count = 0
@@ -281,11 +363,11 @@ class ScraperModule:
                 no_growth_count += 1
                 height_stagnation_count += 1
                 if no_growth_count % 2 == 0:
-                    print(f"    - Scroll {i}: No growth detected (Height stagnant for {height_stagnation_count} scrolls)...")
+                    logger.debug(f"Scroll {i}: No growth detected (Height stagnant for {height_stagnation_count} scrolls)...", extra={"step_name": "Collection"})
             
             # Hard exit on height stagnation (> 2 scrolls)
             if height_stagnation_count > 2:
-                print(f"    - Stop: Height stagnant for {height_stagnation_count} scrolls. Terminating search.")
+                logger.info(f"Stop: Height stagnant for {height_stagnation_count} scrolls. Terminating search.", extra={"step_name": "Collection"})
                 break
 
             # Adaptive scroll distance
@@ -297,23 +379,23 @@ class ScraperModule:
             if i % 3 == 0 or height_stagnation_count >= 2:
                 try:
                     load_more_selectors = config.SELECTORS['post']['load_more_results']
+                    if isinstance(load_more_selectors, str): load_more_selectors = [load_more_selectors]
+                    
                     for selector in load_more_selectors:
-                        btns = self.driver.find_elements(By.XPATH, selector)
-                        for btn in btns:
-                            if btn.is_displayed():
-                                print(f"    [Action] Clicking '{btn.text.strip()}' button to force growth...")
-                                self.driver.execute_script("arguments[0].click();", btn)
-                                time.sleep(4)
-                                no_growth_count = 0 
-                                height_stagnation_count = 0 # Reset after button click
-                                break
+                        # Try robust waiter first
+                        if self.browser_manager.wait_click(selector, timeout=4, retries=2):
+                            logger.info(f"Clicked 'Load More' button to force growth...", extra={"step_name": "Collection"})
+                            no_growth_count = 0 
+                            height_stagnation_count = 0 
+                            time.sleep(4)
+                            break
                 except: pass
 
             if no_growth_count >= 12: 
-                print("    - Stop: Reached end of content (no growth detected).")
+                logger.info("Stop: Reached end of content (no growth detected).", extra={"step_name": "Collection"})
                 break
             if new_total >= 60: 
-                print(f"    - Stop: Found sufficient new posts ({new_total}).")
+                logger.info(f"Stop: Found sufficient new posts ({new_total}).", extra={"step_name": "Collection"})
                 break
 
         return list(found_new_posts.values())

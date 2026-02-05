@@ -6,3 +6,4 @@ undetected-chromedriver
 selenium-stealth
 duckdb
 psutil
+setuptools

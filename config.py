@@ -13,7 +13,7 @@ PROXY_URL = os.getenv('PROXY_URL') # Format: http://user:pass@host:port or host:
 
 # Search Settings
 SEARCH_KEYWORDS = os.getenv('SEARCH_KEYWORDS', 'AI AND Engineer AND hiring AND W2')
-KEYWORDS_FILE = os.getenv('KEYWORDS_FILE', 'keywords.txt')
+KEYWORDS_FILE = os.getenv('KEYWORDS_FILE', 'keywords.json')
 DATE_FILTER = os.getenv('DATE_FILTER', 'past-week')
 SORT_BY = os.getenv('SORT_BY', 'latest') # 'latest' or 'relevance'
 MAX_CONTACTS_PER_RUN = int(os.getenv('MAX_CONTACTS_PER_RUN', '100'))
@@ -57,12 +57,37 @@ CHROME_VERSION = os.getenv('CHROME_VERSION') # Leave empty for auto-detection
 # LinkedIn Selectors
 SELECTORS = {
     "login": {
-        "username": "username",
-        "password": "password"
+        "username": ["username", "session_key", "email-or-phone"],
+        "password": ["password", "session_password"]
     },
     "search": {
-        "global_input": "//input[@data-view-name='search-global-typeahead-input']",
-        "posts_tab_button": "//button[contains(., 'Posts')]"
+        "global_input": [
+            "//input[@data-view-name='search-global-typeahead-input']",
+            "//input[contains(@class, 'search-global-typeahead__input')]",
+            "//input[@placeholder='Search']"
+        ],
+        "posts_tab_button": [
+            "//button[contains(., 'Posts')]",
+            "//div[@id='search-reusables__filters-bar']//button[contains(., 'Posts')]"
+        ],
+        "sort_filter": {
+             "dropdown_button": [
+                 "//button[contains(., 'Sort by')]",
+                 "//button[@aria-label='Sort by']"
+             ],
+             "option_latest": [
+                 "//label[contains(., 'Latest')]",
+                 "//span[contains(., 'Latest')]"
+             ],
+             "option_relevance": [
+                 "//label[contains(., 'Top match')] | //label[contains(., 'Relevance')]",
+                 "//span[contains(., 'Top match')]"
+             ],
+             "show_results_button": [
+                 "//button[contains(., 'Show results')]",
+                 "//button[contains(@class, 'search-reusables__filter-show-results-button')]"
+             ]
+        }
     },
     "post": {
         "containers": [
@@ -121,7 +146,21 @@ SELECTORS = {
             ".//a[contains(@class, 'update-components-actor__container-link')]",
             ".//a[contains(@class, 'app-aware-link') and contains(@href, '/in/')]",
             ".//a[contains(@data-test-app-aware-link, '') and contains(@href, '/in/')]"
-        ]
+        ],
+        "extract_id": {
+            "urn_component": [
+                ".//*[@componentkey or @data-urn]",
+                ".//*[@data-activity-urn]"
+            ],
+            "time_link": [
+                ".//a[contains(@href, 'feed/update/urn:li:activity:')]",
+                ".//a[contains(@href, '/feed/update/')]"
+            ],
+            "copy_link_text": [
+                ".//*[contains(text(), 'Copy link to post')]",
+                ".//li-icon[contains(@type, 'link')]"
+            ]
+        }
     },
     "profile": {
         "full_name": [
