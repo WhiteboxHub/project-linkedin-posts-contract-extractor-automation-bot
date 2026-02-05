@@ -38,6 +38,15 @@ def setup_api_connection():
     while not employee_id:
         employee_id = input("Employee ID is required. Please enter it: ").strip()
 
+    print("\n Step 2.5: Chrome Profile (Optional)")
+    print("-" * 70)
+    print("Providing a Chrome profile allows the bot to stay logged in.")
+    print("Example Path: C:\\Users\\YourName\\AppData\\Local\\Google\\Chrome\\User Data")
+    chrome_path = input("Enter Chrome User Data Path (Enter to skip): ").strip()
+    chrome_profile = "Default"
+    if chrome_path:
+        chrome_profile = input("Enter Profile Name [default: Default]: ").strip() or "Default"
+
   
     print("\n Step 3: Getting JWT Token")
     print("-" * 70)
@@ -72,6 +81,36 @@ def setup_api_connection():
              print(f"   Response: {e.response.text}")
         return
 
+    print("\n Step 3.5: Verifying Token and Employee ID")
+    print("-" * 70)
+    
+    # Use an employee-specific endpoint to verify both the token and the ID
+    emp_verify_url = f"{api_url}/employees/{employee_id}/candidates"
+    if "localhost" in api_url and not api_url.endswith("/api"):
+        emp_verify_url = f"{api_url}/api/employees/{employee_id}/candidates"
+    
+    try:
+        print(f" Verifying Employee ID {employee_id}...")
+        response = requests.get(emp_verify_url, headers={"Authorization": f"Bearer {token}"})
+        
+        if response.status_code == 401:
+            print(" ERROR: Token rejected by API. Access denied. Please check your credentials.")
+            return
+        elif response.status_code == 404:
+            print(f" ERROR: Employee ID {employee_id} not found in the database.")
+            print(" Please check your ID and try again.")
+            return
+            
+        response.raise_for_status()
+        print(f"   [✓] Token Valid")
+        print(f"   [✓] Employee ID {employee_id} verified")
+        
+    except Exception as e:
+        print(f" ERROR: Validation failed: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+             print(f"   Response: {e.response.text}")
+        return
+
     selected_candidate_id = "0"
  
     print("\n Step 4: Updating .env File")
@@ -95,12 +134,16 @@ def setup_api_connection():
                 "JOB_UNIQUE_ID=bot_linkedin_post_contact_extractor\n"
                 "EMPLOYEE_ID=\n"
                 "SELECTED_CANDIDATE_ID=0\n"
+                "CHROME_PROFILE_PATH=\n"
+                "CHROME_PROFILE_NAME=Default\n"
             )
 
      
         def update_key(content, key, value):
+            # Escape backslashes for the replacement string in re.sub
+            escaped_value = value.replace('\\', '\\\\')
             if f"{key}=" in content:
-                return re.sub(rf'^{key}=.*', f'{key}={value}', content, flags=re.MULTILINE)
+                return re.sub(rf'^{key}=.*', f'{key}={escaped_value}', content, flags=re.MULTILINE)
             else:
                 return content.rstrip() + f"\n{key}={value}\n"
 
@@ -109,6 +152,9 @@ def setup_api_connection():
         env_content = update_key(env_content, "JOB_UNIQUE_ID", JOB_UNIQUE_ID)
         env_content = update_key(env_content, "EMPLOYEE_ID", employee_id)
         env_content = update_key(env_content, "SELECTED_CANDIDATE_ID", selected_candidate_id)
+        if chrome_path:
+            env_content = update_key(env_content, "CHROME_PROFILE_PATH", chrome_path)
+            env_content = update_key(env_content, "CHROME_PROFILE_NAME", chrome_profile)
 
         with open(ENV_FILE, 'w') as f:
             f.write(env_content)
@@ -226,11 +272,12 @@ def auto_import_from_marketing():
         for fk in flat_keys:
             print(f"   - {fk}")
             
-        print("\n Please identify the field names for LinkedIn Email and Password.")
+        print("\n Please identify the field names for LinkedIn Email, Password, and Profile folder name.")
         print(" (Copy the exact key path from above, e.g., 'candidate.linkedin_email')")
         
         email_key = input(" Field for LinkedIn Email: ").strip()
         pass_key = input(" Field for LinkedIn Password: ").strip()
+        profile_key = input(" Field for Chrome Profile (Enter to skip): ").strip()
         
         if not email_key or not pass_key:
             print(" valid keys required.")
@@ -239,6 +286,7 @@ def auto_import_from_marketing():
         imported = []
         
         def get_val(d, path):
+            if not path: return None
             parts = path.split('.')
             curr = d
             for p in parts:
@@ -252,6 +300,7 @@ def auto_import_from_marketing():
         for rec in records:
             email = get_val(rec, email_key)
             pwd = get_val(rec, pass_key)
+            profile = get_val(rec, profile_key)
             
             # Try to get candidate ID automatically
             cid = get_val(rec, 'candidate.id')
@@ -261,6 +310,7 @@ def auto_import_from_marketing():
                     "linkedin_email": email,
                     "linkedin_password": pwd,
                     "candidate_id": cid or 0,
+                    "chrome_profile": profile or "Default",
                     "keywords": ["AI Engineer hiring"] # Default keyword
                 }
                 imported.append(cand)
@@ -309,6 +359,7 @@ def setup_multi_candidate_config():
             email = input(" LinkedIn Email: ").strip()
             pwd = input(" LinkedIn Password: ").strip()
             cid = input(" WBL Candidate ID (Optional, press Enter to skip): ").strip()
+            cp = input(" Chrome Profile Name (Optional, e.g. 'Profile 1', press Enter for Default): ").strip()
             kws = input(" Keywords (comma separated, e.g. 'AI Engineer, Data Scientist'): ").strip()
             
             cand_obj = {
@@ -317,6 +368,8 @@ def setup_multi_candidate_config():
             }
             if cid:
                 cand_obj["candidate_id"] = int(cid)
+            if cp:
+                cand_obj["chrome_profile"] = cp
             if kws:
                 cand_obj["keywords"] = [k.strip() for k in kws.split(',') if k.strip()]
             
