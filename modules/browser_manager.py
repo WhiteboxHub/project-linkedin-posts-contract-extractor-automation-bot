@@ -1,6 +1,7 @@
 import time
 import os
 import psutil
+import random
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -148,6 +149,29 @@ class BrowserManager:
         logger.warning(f"Failed to click element {selector} after {retries} attempts.", extra={"step_name": "BrowserManager"})
         return False
 
+    def safe_get_text(self, element, retries=3):
+        """Safely get element text with stale element retries."""
+        for i in range(retries):
+            try:
+                return element.text
+            except StaleElementReferenceException:
+                if i < retries - 1: time.sleep(0.5)
+            except Exception:
+                return ""
+        return ""
+
+    def safe_get_attribute(self, element, attr, retries=3):
+        """Safely get element attribute with stale element retries."""
+        for i in range(retries):
+            try:
+                val = element.get_attribute(attr)
+                return val if val else ""
+            except StaleElementReferenceException:
+                if i < retries - 1: time.sleep(0.5)
+            except Exception:
+                return ""
+        return ""
+
     def get_current_url(self):
         """Safe URL getter."""
         return self.driver.current_url if self.driver else ""
@@ -188,7 +212,64 @@ class BrowserManager:
         time.sleep(5)
         logger.info("Logged in!", extra={"step_name": "BrowserManager"})
 
+    def human_scroll(self, limit_range=(800, 1200)):
+        """
+        Scrolls the page like a human: varying speeds, small pauses, and random distances.
+        """
+        if not self.driver: return
+
+        try:
+            scroll_amount = random.randint(*limit_range)
+            current_pos = self.driver.execute_script("return window.pageYOffset;")
+            target_pos = current_pos + scroll_amount
+            
+            # Break scroll into chunks
+            while current_pos < target_pos:
+                step = random.randint(50, 150)
+                current_pos += step
+                if current_pos > target_pos: current_pos = target_pos
+                
+                self.driver.execute_script(f"window.scrollTo(0, {current_pos});")
+                
+                # Tiny sleep between steps for smooth scroll effect
+                time.sleep(random.uniform(0.01, 0.05))
+                
+                # Occasionally pause briefly
+                if random.random() < 0.1:
+                    time.sleep(random.uniform(0.1, 0.3))
+            
+            time.sleep(random.uniform(0.5, 1.5))
+        except Exception as e:
+            logger.debug(f"Human scroll failed: {e}", extra={"step_name": "BrowserManager"})
+
+    def human_mouse_move(self):
+        """
+        Simulates random mouse movements to deter bot detection.
+        Uses ActionChains to move to random coordinates or elements.
+        """
+        if not self.driver: return
+
+        try:
+            from selenium.webdriver.common.action_chains import ActionChains
+            
+            # 1. Random small offset from current position (simulated)
+            # Note: Selenium doesn't easily allow "move to x,y" without an element reference 
+            # in standard mode, but we can move relative to body or perform "dummy" moves.
+            
+            body = self.driver.find_element(By.TAG_NAME, "body")
+            
+            # Move to random visible elements (headers, buttons, texts)
+            possible_targets = self.driver.find_elements(By.CSS_SELECTOR, "h1, h2, span, p, a")
+            if possible_targets:
+                target = random.choice(possible_targets[:20]) # Limit to top 20 to avoid slow finds
+                if target.is_displayed():
+                    ActionChains(self.driver).move_to_element(target).perform()
+                    time.sleep(random.uniform(0.2, 0.7))
+        except:
+            pass # Fail silently, this is just enhancement
+
     def quit(self):
         if self.driver:
             logger.info("Closing Chrome...", extra={"step_name": "BrowserManager"})
             self.driver.quit()
+

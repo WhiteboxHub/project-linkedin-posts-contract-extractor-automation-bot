@@ -11,7 +11,11 @@ class StorageManager:
     and file system storage for post content.
     """
     def __init__(self):
-        self.posts_dir = "saved_posts"
+        self.output_date_dir = os.path.join("output", datetime.now().strftime('%Y-%m-%d'))
+        if not os.path.exists(self.output_date_dir):
+            os.makedirs(self.output_date_dir)
+            
+        self.posts_dir = "saved_posts" # Keep legacy if needed, or point to new one
         self.processed_profiles = set()
         self.processed_posts = set()
         self.extracted_contacts_buffer = []
@@ -85,6 +89,7 @@ class StorageManager:
     def save_full_post(self, text, post_id, keyword, metadata=None):
         """Save the actual post content to a separate file for storage."""
         if config.DRY_RUN:
+            logger.info(f"[DRY RUN] Would save full post text for {post_id} to file", extra={"step_name": "Persistence"})
             return True
             
         try:
@@ -120,6 +125,12 @@ class StorageManager:
                 f.write(text)
                 f.write("\n\n")
             
+            # Also save to CSV as per new requirement
+            if metadata:
+                # Ensure post_id is in metadata if not already
+                if 'post_id' not in metadata: metadata['post_id'] = post_id
+                self.save_post_to_csv(metadata, keyword)
+            
             return True
         except Exception as e:
             logger.error(f"Error saving post: {e}", extra={"step_name": "Persistence", "post_id": post_id}, exc_info=True)
@@ -128,6 +139,7 @@ class StorageManager:
     def save_post_metadata(self, post_data, keyword, post_id):
         """Save post metadata to DuckDB database."""
         if config.DRY_RUN:
+            logger.info(f"[DRY RUN] Would save metadata for post {post_id} to DuckDB", extra={"step_name": "Persistence"})
             return True
             
         try:
@@ -161,16 +173,51 @@ class StorageManager:
             logger.error(f"Error saving metadata to DuckDB: {e}", extra={"step_name": "Persistence", "post_id": post_id}, exc_info=True)
             return False
 
+    def save_post_to_csv(self, post_data, keyword):
+        """Save post data to posts.csv."""
+        if config.DRY_RUN: 
+            logger.info(f"[DRY RUN] Would save post CSV row for {post_data.get('post_id')}", extra={"step_name": "Persistence"})
+            return True
+        
+        try:
+            filepath = os.path.join(self.output_date_dir, 'posts.csv')
+            file_exists = os.path.exists(filepath)
+            
+            with open(filepath, 'a', newline='', encoding='utf-8') as f:
+                fieldnames = ['post_id', 'post_url', 'author_name', 'post_text', 'profile_url', 'search_keyword', 'extraction_date']
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                
+                if not file_exists:
+                    writer.writeheader()
+                
+                # Extract post ID from metadata if available later, or pass it in. 
+                # Ideally this method should take raw data. Assumes post_data has keys.
+                # post_data is from Scraper.extract_post_data
+                writer.writerow({
+                    'post_id': post_data.get('post_id', 'N/A'), # Requires scraper to inject ID
+                    'post_url': post_data.get('post_url', ''),
+                    'author_name': post_data.get('name', ''),
+                    'post_text': post_data.get('post_text', ''),
+                    'profile_url': post_data.get('profile_url', ''),
+                    'search_keyword': keyword,
+                    'extraction_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                })
+            return True
+        except Exception as e:
+            logger.error(f"Error saving to posts.csv: {e}", extra={"step_name": "Persistence"}, exc_info=True)
+            return False
+
     def save_contact(self, data, keyword):
-        """Save to CSV immediately."""
+        """Save to emails.csv."""
         if config.DRY_RUN:
             logger.info(f"Dry Run skipping CSV and Sync for: {data.get('full_name')}", extra={"step_name": "Persistence"})
             return True
             
-        file_exists = os.path.exists(config.OUTPUT_FILE)
+        filepath = os.path.join(self.output_date_dir, 'emails.csv')
+        file_exists = os.path.exists(filepath)
         
         try:
-            with open(config.OUTPUT_FILE, 'a', newline='', encoding='utf-8') as f:
+            with open(filepath, 'a', newline='', encoding='utf-8') as f:
                 fieldnames = [
                     'full_name', 'email', 'phone', 'linkedin_id',
                     'company_name', 'location', 'post_url', 'extraction_date', 'search_keyword'

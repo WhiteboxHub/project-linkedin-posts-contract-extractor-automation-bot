@@ -1,43 +1,136 @@
-# Quick Setup Guide - WBL Integration
+# LinkedIn Contract Extractor Automation Bot
 
-This guide helps you set up the LinkedIn bot to log activities to the WBL backend.
+A robust, modular, and stealthy automation tool designed to extract contract-related posts (W2, C2C, 1099) from LinkedIn, specifically targeting AI/Tech roles. It filters posts for relevance, extracts author contact details (Email/Phone), and automates data entry into a local database and CSV reports.
 
-##  Setup for New Employees
+## 🚀 Key Features
+
+- **Advanced Search & Filtering**: Supports complex Boolean strings (e.g., `"AI AND Engineer AND W2"`) with strict date filtering (`past-24h`, `week`) and sorting (`date_posted`).
+- **Stealth Mode**: Integrates `undetected-chromedriver` and `selenium-stealth` with human-like scrolling and mouse movements to evade detection.
+- **Modular Architecture**: Clean separation of concerns (`Scraper`, `Processor`, `Storage`, `Browser`) for maintainability.
+- **Smart Extraction**: 
+  - Extracts Name, Email, Phone, Company, Location, and Post URL.
+  - Dedupes contacts (caches profiles during run).
+  - Validates post relevance (AI/Tech keywords).
+- **Data Persistence**:
+  - **CSV**: Daily structured files (`output/YYYY-MM-DD/posts.csv`, `emails.csv`).
+  - **Database**: DuckDB integration (`linkedin_data.db`).
+- **Metrics & Reporting**: Detailed end-of-run summary with success rates, skip reasons, and retry statistics.
+- **Dry Run Mode**: safely validate logic and selectors without writing data.
+
+## 🏗 System Architecture
+
+The project follows a modular design pattern:
+
+```
+project-root/
+├── Modules
+│   ├── browser_manager.py   # Handles Chrome lifecycle, profiles, proxy, and stealth.
+│   ├── scraper_module.py    # DOM interaction, navigation, and raw data extraction.
+│   ├── processor_module.py  # Data cleaning, regex extraction (Email/Phone), and relevance scoring.
+│   ├── storage_manager.py   # Manages CSV/DB I/O, file structure, and deduplication.
+│   ├── metrics_manager.py   # Centralized tracking of counters, skips, and failures.
+│   └── logger.py            # Structured JSON logging for audit trails.
+├── linkedin_bot_complete.py # Main Orchestrator. Coordinates the flow between modules.
+├── config.py                # Configuration loader (Env vars, Selectors, Constants).
+├── keywords.json            # List of target search queries.
+├── job_activity_logger.py   # Integration with external backend (WBL).
+└── setup_production.py      # Onboarding script for new users.
+```
+
+### Flow Diagram (Data Pipeline)
+1. **Init**: Load Config -> Init `BrowserManager` (Stealth) -> Validate Selectors.
+2. **Search**: Iterate `keywords.json` -> Construct Strict URL -> Navigate.
+3. **Collect**: Scroll (Human-like) -> Identify new Posts -> Extract Metadata.
+4. **Filter**: Check `Search Keywords` (AI/ML) + `Job Keywords` (Hiring/Contract).
+5. **Enrich**: If relevant & new -> Visit Profile -> Extract Email/Phone.
+6. **Persist**: Save to CSV/DB -> Log Metrics.
+7. **Report**: Print Summary -> Sync to Backend.
+
+## 🛠️ Setup & Installation
+
+### Prerequisites
+- Python 3.10+
+- Google Chrome installed.
 
 ### 1. Install Dependencies
-Make sure you have all required libraries installed:
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Run Automated Setup
-Each employee needs their own credentials and token. Run this script once to configure your personal `.env` file:
+### 2. Configure Environment
+Copy the example file and fill in your details:
 ```bash
-python setup_production.py
+cp .env.example .env
 ```
-This script will:
-- Ask for your WBL email/password
-- Ask for your **Employee ID**
-- Get your personal **JWT Token**
-- Update your `.env` file automatically
-
-### 3. Check LinkedIn Credentials
-Open your `.env` file and make sure your LinkedIn email and password are set:
-```env
-LINKEDIN_EMAIL=your_email@gmail.com
+Edit `.env` with your credentials:
+```ini
+LINKEDIN_EMAIL=your_email@example.com
 LINKEDIN_PASSWORD=your_password
+# Optional Proxy
+PROXY_URL=http://user:pass@host:port
+# Chrome Profile (Recommended for session persistence)
+CHROME_PROFILE_PATH=/Users/your_user/Library/Application Support/Google/Chrome
+CHROME_PROFILE_NAME=Default
 ```
 
-### 4. Run the Bot
-Now you are ready to start extraction:
+### 3. Customize Search
+Edit `keywords.json` to target specific roles:
+```json
+[
+    "AI AND W2",
+    "GenAI AND Contract",
+    "Machine Learning AND C2C"
+]
+```
+*Note: The bot automatically appends date filters (`past-24h`) via `config.py`.*
+
+## 🏃 Usage
+
+### Standard Run
 ```bash
 python linkedin_bot_complete.py
 ```
 
-##  How it Works
-The bot extracts contact information from LinkedIn posts and automatically sends a summary of how many contacts were processed to the WBL dashboard. This helps track bot activity and performance across different employees.
+### Dry Run (Testing)
+Set `DRY_RUN=True` in `.env` or `config.py` to simulate actions without saving data:
+```bash
+python linkedin_bot_complete.py
+```
+*Useful for verifying selectors and navigation logic.*
 
-##  Important Notes
-- **Employee ID**: Ensure you use your correct ID from the WBL system.
-- **Token Expiry**: If you get a "401 Unauthorized" error later, just re-run `python setup_production.py` to get a fresh token.
-- **Database Logic**: No database passwords are stored in this script. All communication is done securely via the WBL API.
+### Multi-Candidate Mode
+Create a `candidates.json` file to run the bot sequentially for multiple accounts (see `job_activity_logger.py` logic).
+
+## 📊 Output & Metrics
+
+### Files
+Data is organized by date in the `output/` directory:
+- `output/202X-XX-XX/posts.csv`: Full post metadata.
+- `output/202X-XX-XX/emails.csv`: Extracted valid contacts.
+
+### Execution Summary
+At the end of every run, you will see a report:
+```text
+==================================================
+           EXECUTION SUMMARY REPORT           
+==================================================
+Duration:        0:12:45
+Total Seen:      150
+Successfully Extracted: 42
+Skipped:         108
+...
+FAILURE BREAKDOWN:
+  - Stale Element: 2
+==================================================
+```
+
+## 🔒 Security
+- **Credentials**: Never stored in code. utilize `.env`.
+- **Stealth**: 
+  - `selenium-stealth` masks WebDriver properties.
+  - `BrowserManager` implements random mouse movements and variable scrolling.
+  - Proxies supported via `undetected-chromedriver`.
+
+## 📝 Developer Notes
+- **Selectors**: Defined in `config.py`. Update this file if LinkedIn UI changes.
+- **Logging**: Logs are structured JSON format for easy ingestion into monitoring tools (Splunk/ELK).

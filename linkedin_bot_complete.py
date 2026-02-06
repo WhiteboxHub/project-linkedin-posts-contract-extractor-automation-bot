@@ -41,6 +41,10 @@ class LinkedInBotComplete:
         if self.candidate_id:
             self.activity_logger.selected_candidate_id = self.candidate_id
             
+        # Initialize metrics
+        from modules.metrics_manager import MetricsTracker
+        self.metrics = MetricsTracker()
+            
         # Initialize modules
         self.processor = ProcessorModule()
         self.scraper = None  # Initialized after driver in init_driver
@@ -67,7 +71,7 @@ class LinkedInBotComplete:
             
     def init_driver(self):
         self.browser_manager.init_driver()
-        self.scraper = ScraperModule(self.browser_manager)
+        self.scraper = ScraperModule(self.browser_manager, metrics=self.metrics)
         
     def login(self):
         self.browser_manager.login(self.linkedin_email, self.linkedin_password)
@@ -91,14 +95,19 @@ class LinkedInBotComplete:
             if self.total_saved >= config.MAX_CONTACTS_PER_RUN:
                 logger.info(f"Stop: Reached MAX_CONTACTS_PER_RUN ({config.MAX_CONTACTS_PER_RUN}).", extra={"step_name": "Keyword Processing"})
                 break
-                
+            
+            self.metrics.increment('posts_seen')
+            
             # Extract post ID first
             post_id = self.scraper.extract_post_id(post)
             
             # Skip if we've already processed this post
             if post_id and post_id in self.storage_manager.processed_posts:
+                self.metrics.track_skip("Already Processed")
                 continue
             
+            self.metrics.increment('posts_attempted')
+
             # Extract post data
             try:
                 post_data = self.scraper.extract_post_data(post, get_full_html=True)
@@ -112,13 +121,24 @@ class LinkedInBotComplete:
                     post_data = self.scraper.extract_post_data(fresh_post, get_full_html=True)
                 else:
                     logger.warning("Recovery failed. Skipping.", extra={"step_name": "Post Extraction", "post_id": post_id, "keyword": keyword})
+                    self.metrics.track_failure("Stale Element Recovery Failed")
                     continue
+            except Exception as e:
+                logger.error(f"Extraction failed: {e}", extra={"step_name": "Post Extraction"}, exc_info=True)
+                self.metrics.track_failure("Extraction Exception")
+                continue
             
             # Construct post URL
             post_url = ""
             if post_id and 'urn:li:activity:' in post_id:
                 post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
             post_data['post_url'] = post_url
+            
+            if not post_data.get('name'):
+                 self.metrics.track_failure("Name Extraction Failed")
+                 # We still try to save what we have or skip? 
+                 # Current logic continues, but maybe we should count it as partial?
+                 # Let's continue for now.
 
             # Initialize metadata with what we have from the post
             current_meta = {
@@ -164,6 +184,7 @@ class LinkedInBotComplete:
                         
                     is_extracted = True
                     found += 1
+                    self.metrics.increment('posts_extracted')
                 
                 # CASE 2: New post and brand new person
                 elif normalized_url not in self.storage_manager.processed_profiles:
@@ -197,17 +218,24 @@ class LinkedInBotComplete:
                         self.storage_manager.processed_profiles.add(normalized_url)
                         
                         is_extracted = True
+                        self.metrics.increment('posts_extracted')
                     else:
                         logger.info(f"Skipped: No email found for {profile_data['full_name'] or post_data['name']}", extra={"step_name": "Data Enrichment", "post_id": post_id, "keyword": keyword})
                         self.storage_manager.processed_profiles.add(normalized_url)
+                        self.metrics.track_skip("No Email Found")
             else:
-                if not normalized_url: pass
-                elif normalized_url in self.storage_manager.processed_profiles: pass
+                if not normalized_url: 
+                    self.metrics.track_skip("No Profile URL")
+                elif normalized_url in self.storage_manager.processed_profiles: 
+                    pass # Already handled/skipped silently for performance usually, but let's count? 
+                    # Actually above logic handles cache match. If in processed_profiles but NOT in cache, it means we scanned it before and found no email/rejected.
+                    self.metrics.track_skip("Already Scanned Profile")
                 elif not is_relevant:
                     reasons = []
                     if not post_data['has_job']: reasons.append("No job keywords")
                     if not post_data['is_relevant']: reasons.append("Not AI related")
                     logger.info(f"Skip: {', '.join(reasons)}", extra={"step_name": "Relevance Check", "post_id": post_id, "keyword": keyword})
+                    self.metrics.track_skip(f"Irrelevant ({', '.join(reasons)})")
             
             # Save ALL posts (relevant or not) with best available metadata
             if post_id:
@@ -224,6 +252,8 @@ class LinkedInBotComplete:
                 self.storage_manager.save_processed_post_id(post_id)
                 self.posts_saved += 1
                 posts_processed += 1
+            else:
+                 self.metrics.track_failure("No Post ID")
 
             time.sleep(random.uniform(1.5, 8.0))
         
@@ -235,6 +265,7 @@ class LinkedInBotComplete:
         try:
             logger.info("LinkedIn Complete Data Extractor (Modularized) Started", extra={"step_name": "Startup"})
             logger.info(f"Extracts: Name, Email, Phone, Company, Location. Output: {config.OUTPUT_FILE}", extra={"step_name": "Startup"})
+            self.metrics.start_session()
             
             cand_id = getattr(self.activity_logger, 'selected_candidate_id', 0)
             if cand_id != 0:
@@ -385,6 +416,10 @@ class LinkedInBotComplete:
             logger.info(f" - Contacts Found:       {self.total_saved}", extra={"step_name": "Shutdown"})
             logger.info(f" - Contacts Synced:      {self.total_synced}", extra={"step_name": "Shutdown"})
             logger.info(f" - Posts Saved to Disk: {self.posts_saved}", extra={"step_name": "Shutdown"})
+            
+            # Print detailed metrics summary
+            self.metrics.end_session()
+            self.metrics.print_summary()
 
 
 if __name__ == "__main__":

@@ -19,19 +19,26 @@ def retry_on_failure(retries=3, delay=5):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
+            # Try to get metrics tracker from self (args[0])
+            metrics = None
+            if args and hasattr(args[0], 'metrics'):
+                metrics = args[0].metrics
+
             last_exception = None
             for i in range(retries):
                 try:
                     result = func(*args, **kwargs)
                     if result: # If method returns True/truthy on success
                         return result
+                    
+                    if metrics: metrics.track_retry(func.__name__)
                     logger.warning(f"Method {func.__name__} returned False, retrying in {delay}s... ({i+1}/{retries})", extra={"step_name": func.__name__})
                 except Exception as e:
                     last_exception = e
+                    if metrics: metrics.track_retry(func.__name__)
                     logger.warning(f"Method {func.__name__} failed with error: {e}. Retrying in {delay}s... ({i+1}/{retries})", extra={"step_name": func.__name__}, exc_info=True)
                 
                 time.sleep(delay)
-                # Optional: Refresh page or handle "Something went wrong" here if needed
             
             logger.error(f"Method {func.__name__} failed after {retries} attempts.", extra={"step_name": func.__name__})
             if last_exception:
@@ -41,10 +48,11 @@ def retry_on_failure(retries=3, delay=5):
     return decorator
 
 class ScraperModule:
-    def __init__(self, browser_manager):
+    def __init__(self, browser_manager, metrics=None):
         self.browser_manager = browser_manager
         self.driver = browser_manager.get_driver()
         self.processor = ProcessorModule()
+        self.metrics = metrics
 
     def validate_selectors(self):
         """
@@ -97,10 +105,9 @@ class ScraperModule:
         try:
             # 1. Direct attribute check (standard LinkedIn)
             for attr in ['data-urn', 'data-activity-urn', 'data-id', 'componentkey']:
-                val = post.get_attribute(attr)
+                val = self.browser_manager.safe_get_attribute(post, attr)
                 if val: return val
                 
-            # 1b. Check children for componentkey
             # 1b. Check children for componentkey
             try:
                 selectors = config.SELECTORS['post']['extract_id']['urn_component']
@@ -110,7 +117,7 @@ class ScraperModule:
                     try:
                         elem = post.find_element(By.XPATH, xpath)
                         for attr in ['componentkey', 'data-urn', 'data-activity-urn']:
-                            val = elem.get_attribute(attr)
+                            val = self.browser_manager.safe_get_attribute(elem, attr)
                             if val: return val
                     except: continue
             except: pass
@@ -124,7 +131,7 @@ class ScraperModule:
                     try:
                         time_links = post.find_elements(By.XPATH, xpath)
                         for link in time_links:
-                            href = link.get_attribute('href')
+                            href = self.browser_manager.safe_get_attribute(link, 'href')
                             if 'urn:li:activity:' in href:
                                 match = re.search(r'urn:li:activity:(\d+)', href)
                                 if match: return f"urn:li:activity:{match.group(1)}"
@@ -142,13 +149,15 @@ class ScraperModule:
                         copy_link_elem = post.find_element(By.XPATH, xpath)
                         if copy_link_elem:
                             parent = copy_link_elem.find_element(By.XPATH, "./..")
-                            val = parent.get_attribute('data-control-name') or parent.get_attribute('id')
+                            # We can't use safe_get for chained calls easily without elem ref, 
+                            # but we can wrap safe_get on the parent.
+                            val = self.browser_manager.safe_get_attribute(parent, 'data-control-name') or self.browser_manager.safe_get_attribute(parent, 'id')
                             if val and 'activity' in val: return val
                     except: continue
             except: pass
 
             # 4. Generate hash if truly nothing found
-            post_html = post.get_attribute('outerHTML')
+            post_html = self.browser_manager.safe_get_attribute(post, 'outerHTML')
             if post_html:
                 return hashlib.md5(post_html[:500].encode()).hexdigest()
         except:
@@ -176,75 +185,48 @@ class ScraperModule:
 
     @retry_on_failure(retries=3, delay=5)
     def search_posts(self, keyword):
-        """Search for posts on LinkedIn for a given keyword."""
+        """Search for posts on LinkedIn for a given keyword using strict URL parameters."""
         logger.info(f"Searching for keyword: {keyword}", extra={"step_name": "Search"})
+        if config.DRY_RUN:
+            logger.info("DRY RUN ACTIVE: Searching and extracting without saving.", extra={"step_name": "Search"})
         
-        if 'linkedin.com' not in self.driver.current_url:
-            if not self.browser_manager.navigate("https://www.linkedin.com/feed/"):
-                return False
-            time.sleep(random.uniform(2.5, 4.5))
+        # Construct URL with strict parameters
+        import urllib.parse
+        encoded_kw = urllib.parse.quote(keyword)
         
-        try:
-            selectors = config.SELECTORS['search']['global_input']
-            if isinstance(selectors, str): selectors = [selectors]
-            
-            search_box = None
-            for selector in selectors:
-                try:
-                    search_box = WebDriverWait(self.driver, 5).until(
-                        EC.presence_of_element_located((By.XPATH, selector))
-                    )
-                    break
-                except: continue
-                
-            if not search_box:
-                logger.error("Could not find search box.", extra={"step_name": "Search"})
-                return False
-
-            search_box.click() 
-            search_box.clear()
-            time.sleep(1)
-            
-            for char in keyword:
-                search_box.send_keys(char)
-                time.sleep(0.05)
-            
-            time.sleep(random.uniform(2.5, 5.0))
-            search_box.send_keys(Keys.RETURN)
-            time.sleep(random.uniform(4.0, 6.5))
-            
-            current_url = self.driver.current_url
-            if '/search/results/all' in current_url or '/search/results/people' in current_url:
-                logger.info("Switching to 'Posts' tab...", extra={"step_name": "Search"})
-                posts_url = current_url.replace('/search/results/all', '/search/results/content').replace('/search/results/people', '/search/results/content')
-                
-                sort_val = getattr(config, 'SORT_BY', 'latest').lower()
-                if 'sortBy' not in posts_url:
-                    sort_param = '%5B%22date_posted%22%5D' if sort_val == 'latest' else '%5B%22relevance%22%5D'
-                    sep = '&' if '?' in posts_url else '?'
-                    posts_url += f"{sep}sortBy={sort_param}"
-                
-                if not self.browser_manager.navigate(posts_url):
-                    return False
-                time.sleep(random.uniform(4.0, 7.0))
-            
-            if '/search/results/content' not in self.driver.current_url:
-                try:
-                    # Use robust click for tab switching
-                    self.browser_manager.wait_click(config.SELECTORS['search']['posts_tab_button'], timeout=5)
-                    time.sleep(5)
-                except: pass
-            
-            # Final verification: Ensure sort is applied (UI fallback)
-            if 'sortBy' not in self.driver.current_url:
-                if not self.apply_sort_filter():
-                    logger.critical("Failed to apply sort filter after 3 attempts. Moving to next keyword.", extra={"step_name": "Search"})
-                    return False
-            
-            return True
-        except Exception as e:
-            logger.error(f"Error searching: {e}", extra={"step_name": "Search"}, exc_info=True)
+        # defaults
+        sort_param = '%5B%22date_posted%22%5D' # sortBy=["date_posted"]
+        
+        # map config DATE_FILTER to URL param value
+        # e.g. past-24h -> %5B%22past-24h%22%5D
+        date_filter_map = {
+            'past-24h': '%5B%22past-24h%22%5D',
+            'past-week': '%5B%22past-week%22%5D',
+            'past-month': '%5B%22past-month%22%5D'
+        }
+        date_param = date_filter_map.get(config.DATE_FILTER, '%5B%22past-24h%22%5D')
+        
+        target_url = (
+            f"https://www.linkedin.com/search/results/content/"
+            f"?keywords={encoded_kw}"
+            f"&sortBy={sort_param}"
+            f"&datePosted={date_param}"
+        )
+        
+        if not self.browser_manager.navigate(target_url):
             return False
+            
+        self.browser_manager.human_move_mouse()
+        time.sleep(random.uniform(4.0, 7.0))
+        
+        # Validate we are on the content tab
+        if '/search/results/content' not in self.browser_manager.get_current_url():
+             logger.warning("Redirection might have failed, attempting strict navigation again...", extra={"step_name": "Search"})
+             if not self.browser_manager.navigate(target_url): 
+                 return False
+             time.sleep(5)
+            
+        return True
 
     @retry_on_failure(retries=3, delay=5)
     def apply_sort_filter(self):
@@ -319,23 +301,41 @@ class ScraperModule:
         """Scan and collect post elements from the search result page."""
         processed_posts = processed_posts or set()
         logger.info("Scanning for posts...", extra={"step_name": "Collection"})
+        
         last_total = 0
         last_height = self.driver.execute_script("return document.body.scrollHeight")
         no_growth_count = 0
         height_stagnation_count = 0
         
-        # Maintain a map of p_id -> element to ensure uniqueness and skip already processed
+        # Maintain a map of p_id -> element to ensure uniqueness within this batch
         found_new_posts = {} 
+        
+        # Track history for smarter exits
+        visible_count_history = []
         
         for i in range(1, 21): # Limit to 20 scrolls per keyword
             current_elements = self._find_post_elements()
-            total_visible = len(current_elements)
+            
+            # Filter valid elements
+            valid_elements = []
+            for p in current_elements:
+                try:
+                    if p.is_displayed(): valid_elements.append(p)
+                except: continue
+                
+            total_visible = len(valid_elements)
+            visible_count_history.append(total_visible)
+            
             current_height = self.driver.execute_script("return document.body.scrollHeight")
             
             new_this_scroll = 0
-            for p in current_elements:
+            for p in valid_elements:
                 try:
                     p_id = self.extract_post_id(p)
+                    # Deduplication logic:
+                    # 1. Must have ID
+                    # 2. Must not be in global processed list
+                    # 3. Must not be in current batch found list
                     if p_id and p_id not in processed_posts:
                         if p_id not in found_new_posts:
                             found_new_posts[p_id] = p
@@ -358,21 +358,27 @@ class ScraperModule:
                 last_total = total_visible
                 last_height = current_height
                 no_growth_count = 0
-                height_stagnation_count = 0 # Reset on any growth
+                height_stagnation_count = 0 
             else:
                 no_growth_count += 1
                 height_stagnation_count += 1
                 if no_growth_count % 2 == 0:
                     logger.debug(f"Scroll {i}: No growth detected (Height stagnant for {height_stagnation_count} scrolls)...", extra={"step_name": "Collection"})
             
-            # Hard exit on height stagnation (> 2 scrolls)
+            # Hard exit on height stagnation
             if height_stagnation_count > 2:
                 logger.info(f"Stop: Height stagnant for {height_stagnation_count} scrolls. Terminating search.", extra={"step_name": "Collection"})
                 break
 
             # Adaptive scroll distance
             scroll_by = 1200 if no_growth_count < 3 else 2500
-            self.driver.execute_script(f"window.scrollBy(0, {scroll_by});")
+            # Use Human Scroll
+            self.browser_manager.human_scroll(limit_range=(scroll_by-200, scroll_by+200))
+            
+            # Occasional random mouse move
+            if random.random() < 0.3:
+                self.browser_manager.human_move_mouse()
+                
             time.sleep(random.uniform(2.0, 3.5))
             
             # Explicit "Load more" check
@@ -391,13 +397,14 @@ class ScraperModule:
                             break
                 except: pass
 
-            if no_growth_count >= 12: 
+            if no_growth_count >= 6: # Tighter limit for no growth
                 logger.info("Stop: Reached end of content (no growth detected).", extra={"step_name": "Collection"})
                 break
             if new_total >= 60: 
                 logger.info(f"Stop: Found sufficient new posts ({new_total}).", extra={"step_name": "Collection"})
                 break
-
+        
+        # Return unique list
         return list(found_new_posts.values())
 
     def _find_post_elements(self):
@@ -440,8 +447,7 @@ class ScraperModule:
         
         try:
             if get_full_html:
-                try: data['post_html'] = post.get_attribute('outerHTML')
-                except: pass
+                data['post_html'] = self.browser_manager.safe_get_attribute(post, 'outerHTML')
             
             # Click see more
             try:
@@ -450,19 +456,13 @@ class ScraperModule:
                     try:
                         more_btns = post.find_elements(By.XPATH, selector)
                         for btn in more_btns:
-                            if btn.is_displayed() and 'more' in btn.text.lower():
-                                # Human-like click with random mouse offset
+                            if btn.is_displayed():
+                                # Try robust click directly
                                 try:
-                                    actions = ActionChains(self.driver)
-                                    # Offset by random pixels (-3 to 3 range)
-                                    x_off = random.randint(-4, 4)
-                                    y_off = random.randint(-4, 4)
-                                    actions.move_to_element_with_offset(btn, x_off, y_off).click().perform()
-                                except:
                                     self.driver.execute_script("arguments[0].click();", btn)
-                                
-                                time.sleep(random.uniform(0.5, 1.5))
-                                break
+                                    time.sleep(random.uniform(0.5, 1.5))
+                                    break
+                                except: pass
                     except: continue
             except: pass
             
@@ -472,7 +472,7 @@ class ScraperModule:
                 for selector in name_selectors:
                     try:
                         name_elem = post.find_element(By.XPATH, selector)
-                        name = name_elem.text.strip()
+                        name = self.browser_manager.safe_get_text(name_elem)
                         if name and 0 < len(name) < 100:
                             data['name'] = name
                             break
@@ -480,7 +480,7 @@ class ScraperModule:
                 # Final fallback for name: check the first few words of the post text
                 if not data['name']:
                     try:
-                        raw_text = post.text.split('\n')[0].strip()
+                        raw_text = self.browser_manager.safe_get_text(post).split('\n')[0].strip()
                         if raw_text and len(raw_text) < 50:
                             data['name'] = raw_text
                     except: pass
@@ -492,7 +492,7 @@ class ScraperModule:
                 for selector in headline_selectors:
                     try:
                         headline_elem = post.find_element(By.XPATH, selector)
-                        headline = headline_elem.text.strip()
+                        headline = self.browser_manager.safe_get_text(headline_elem)
                         if headline:
                             data['company'] = headline # We use company field for headline in post data
                             break
@@ -506,18 +506,19 @@ class ScraperModule:
                 for selector in text_selectors:
                     try:
                         text_elem = post.find_element(By.XPATH, selector)
-                        if text_elem and text_elem.text.strip(): break
+                        # Quick check if it has text
+                        if text_elem and self.browser_manager.safe_get_text(text_elem): break
                     except: continue
                         
                 if text_elem:
-                    text = text_elem.text.strip()
+                    text = self.browser_manager.safe_get_text(text_elem)
                     cleaned = self.clean_post_text(text)
                     data['post_text'] = cleaned.encode('ascii', 'ignore').decode('ascii')
                 
                 # Final fallback for post text: capture all visible text if specific selectors failed
                 if not data['post_text'] or len(data['post_text']) < 20:
                     try:
-                        raw_all_text = post.text
+                        raw_all_text = self.browser_manager.safe_get_text(post)
                         cleaned = self.clean_post_text(raw_all_text)
                         if len(cleaned) > len(data.get('post_text', '')):
                             data['post_text'] = cleaned.encode('ascii', 'ignore').decode('ascii')
@@ -537,13 +538,15 @@ class ScraperModule:
                 for selector in link_selectors:
                     try:
                         link = post.find_element(By.XPATH, selector)
-                        url = link.get_attribute('href')
+                        url = self.browser_manager.safe_get_attribute(link, 'href')
                         if url and '/in/' in url:
                             data['profile_url'] = url.split('?')[0]
                             break
                     except: continue
             except: pass
-        except: pass
+        except Exception as e:
+            # Catch-all for unexpected errors during extraction
+            pass 
         
         return data
 

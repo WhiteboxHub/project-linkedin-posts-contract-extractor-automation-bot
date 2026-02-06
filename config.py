@@ -12,15 +12,13 @@ LINKEDIN_PASSWORD = os.getenv('LINKEDIN_PASSWORD')
 PROXY_URL = os.getenv('PROXY_URL') # Format: http://user:pass@host:port or host:port
 
 # Search Settings
-SEARCH_KEYWORDS = os.getenv('SEARCH_KEYWORDS', 'AI AND Engineer AND hiring AND W2')
 KEYWORDS_FILE = os.getenv('KEYWORDS_FILE', 'keywords.json')
-DATE_FILTER = os.getenv('DATE_FILTER', 'past-week')
-SORT_BY = os.getenv('SORT_BY', 'latest') # 'latest' or 'relevance'
+DATE_FILTER = os.getenv('DATE_FILTER', 'past-24h') # 'past-24h', 'past-week', 'past-month'
+SORT_BY = 'date_posted' # Forced to date_posted as per user request
 MAX_CONTACTS_PER_RUN = int(os.getenv('MAX_CONTACTS_PER_RUN', '100'))
 DRY_RUN = os.getenv('DRY_RUN', 'False').lower() == 'true'
 
 # Output Settings
-OUTPUT_FORMAT = os.getenv('OUTPUT_FORMAT', 'csv')
 OUTPUT_FILE = os.getenv('OUTPUT_FILE', 'output.csv')
 
 # AI/ML Related Keywords to filter posts
@@ -39,12 +37,7 @@ JOB_KEYWORDS = [
     'join our team', 'apply', 'careers', 'employment'
 ]
 
-# Location keywords (priority for US)
-USA_KEYWORDS = [
-    'usa', 'united states', 'us', 'america', 'u.s.',
-    'us citizen', 'us citizens', 'citizenship',
-    'remote', 'remote us', 'us remote'
-]
+
 
 # Chrome Profile Settings for persistent login
 # Path to your Chrome User Data (e.g., C:/Users/YourName/AppData/Local/Google/Chrome/User Data)
