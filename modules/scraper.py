@@ -12,6 +12,7 @@ from selenium.common.exceptions import StaleElementReferenceException, TimeoutEx
 from functools import wraps
 from modules.processor import ProcessorModule
 from modules.logger import logger
+from modules.utils import clean_post_content
 import config
 
 def retry_on_failure(retries=3, delay=5):
@@ -164,24 +165,8 @@ class ScraperModule:
             pass
         return None
 
-    def clean_post_text(self, text):
-        """Clean post text by removing hashtags, '…more', and UI elements."""
-        if not text:
-            return ""
-            
-        text = text.replace("…more", "").replace("...more", "")
-        lines = text.split('\n')
-        cleaned_lines = []
-        for line in lines:
-            if "Like Comment Share" in line or "Comment" == line.strip() or "Share" == line.strip():
-                continue
-            cleaned_lines.append(line)
-        text = "\n".join(cleaned_lines)
-        text = re.sub(r'#\w+', '', text)
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        text = re.sub(r'[ \t]+', ' ', text)
-        
-        return text.strip()
+    # [REMOVED] old clean_post_text - using modules.utils.clean_post_content instead
+
 
     @retry_on_failure(retries=3, delay=5)
     def search_posts(self, keyword):
@@ -444,28 +429,39 @@ class ScraperModule:
                 data['post_html'] = self.browser_manager.safe_get_attribute(post, 'outerHTML')
             
             # Click see more - [UPDATED] with user specifics
+            # Click see more - [UPDATED] Aggressive Loop
             try:
-                # [NEW] Prioritize the user-specified button
-                expand_btn = post.find_element(By.XPATH, ".//button[@data-testid='expandable-text-button']")
-                if expand_btn and expand_btn.is_displayed():
-                     self.driver.execute_script("arguments[0].click();", expand_btn)
-                     time.sleep(random.uniform(0.5, 1.0))
-            except:
-                # [Keeping fallback logic just in case, but user wanted priority]
-                try:
-                    more_selectors = config.SELECTORS['post']['see_more_button']
-                    for selector in more_selectors:
+                # Iterate multiple times to catch nested "more" buttons
+                more_selectors = config.SELECTORS['post']['see_more_button']
+                if isinstance(more_selectors, str): more_selectors = [more_selectors]
+                
+                # Combine all selectors into one massive find if possible, or iterate
+                # Better to iterate and find *all* matching buttons in the post
+                clicked_any = False
+                for _ in range(2): # Try twice in case expansion reveals more
+                    visible_btns = []
+                    for sel in more_selectors:
                         try:
-                            # We already tried checking the primary one above, this iterates the rest
-                            more_btns = post.find_elements(By.XPATH, selector)
-                            for btn in more_btns:
+                            found = post.find_elements(By.XPATH, sel)
+                            for btn in found:
                                 if btn.is_displayed():
-                                    try:
-                                        self.driver.execute_script("arguments[0].click();", btn)
-                                        break
-                                    except: pass
+                                    visible_btns.append(btn)
                         except: continue
-                except: pass
+                    
+                    if not visible_btns:
+                        break
+                        
+                    for btn in visible_btns:
+                        try:
+                            self.driver.execute_script("arguments[0].click();", btn)
+                            clicked_any = True
+                            time.sleep(random.uniform(0.3, 0.6))
+                        except: pass
+                    
+                    if clicked_any:
+                        time.sleep(0.5)
+            except Exception as e:
+                logger.debug(f"Error clicking see more: {e}", extra={"step_name": "Post Extraction"})
             
             # Post Text - [UPDATED] Prioritize extraction and saving FIRST
             # User Request: "I want to just get post text first, then save it fo a file with post_id"
@@ -483,7 +479,7 @@ class ScraperModule:
 
                 if text_elem:
                     text = self.browser_manager.safe_get_text(text_elem)
-                    cleaned = self.clean_post_text(text)
+                    cleaned = clean_post_content(text)
                     data['post_text'] = cleaned.encode('ascii', 'ignore').decode('ascii')
                 else: 
                      # Fallback to old catch-all text

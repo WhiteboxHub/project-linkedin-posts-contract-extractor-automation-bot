@@ -63,9 +63,11 @@ class BrowserManager:
             chrome_options.add_argument(f"--profile-directory={self.chrome_profile}")
         
         # Proxy Support
-        if config.PROXY_URL:
-            logger.info(f"Using Proxy: {config.PROXY_URL}", extra={"step_name": "BrowserManager"})
-            chrome_options.add_argument(f'--proxy-server={config.PROXY_URL}')
+        # Proxy Support
+        proxy_url = getattr(config, 'PROXY_URL', None)
+        if proxy_url:
+            logger.info(f"Using Proxy: {proxy_url}", extra={"step_name": "BrowserManager"})
+            chrome_options.add_argument(f'--proxy-server={proxy_url}')
         
         # undetected_chromedriver handles its own driver management
         try:
