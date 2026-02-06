@@ -131,7 +131,7 @@ class LinkedInBotComplete:
             # Construct post URL
             post_url = ""
             if post_id and 'urn:li:activity:' in post_id:
-                post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
+                post_url = f"{config.URLS['POST_BASE']}{post_id}/"
             post_data['post_url'] = post_url
             
             if not post_data.get('name'):
@@ -278,7 +278,7 @@ class LinkedInBotComplete:
             
             # Check if we are already logged in via profile
             logger.info("Checking session...", extra={"step_name": "Startup"})
-            self.browser_manager.navigate("https://www.linkedin.com/feed/")
+            self.browser_manager.navigate(config.URLS['FEED'])
             time.sleep(random.uniform(4.0, 8.5))
             
             curr_url = self.browser_manager.get_current_url()

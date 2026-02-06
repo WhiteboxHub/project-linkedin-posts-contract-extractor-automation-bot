@@ -183,7 +183,7 @@ class BrowserManager:
             logger.error("Error: Driver not initialized!", extra={"step_name": "BrowserManager"})
             return
 
-        self.navigate("https://www.linkedin.com/login")
+        self.navigate(config.URLS['LOGIN'])
         time.sleep(2)
         
         # Helper to try list of selectors

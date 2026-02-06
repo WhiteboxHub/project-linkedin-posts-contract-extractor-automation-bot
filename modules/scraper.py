@@ -64,7 +64,7 @@ class ScraperModule:
         # We need to be on a LinkedIn page that has the search bar (usually home feed)
         # We need to be on a LinkedIn page that has the search bar (usually home feed)
         if "linkedin.com/feed" not in self.driver.current_url:
-            if not self.browser_manager.navigate("https://www.linkedin.com/feed/"):
+            if not self.browser_manager.navigate(config.URLS['FEED']):
                 return False
             time.sleep(random.uniform(2.5, 4.0))
 
@@ -195,19 +195,13 @@ class ScraperModule:
         encoded_kw = urllib.parse.quote(keyword)
         
         # defaults
-        sort_param = '%5B%22date_posted%22%5D' # sortBy=["date_posted"]
+        sort_param = config.SEARCH_FILTERS['SORT_BY']['date_posted'] 
         
         # map config DATE_FILTER to URL param value
-        # e.g. past-24h -> %5B%22past-24h%22%5D
-        date_filter_map = {
-            'past-24h': '%5B%22past-24h%22%5D',
-            'past-week': '%5B%22past-week%22%5D',
-            'past-month': '%5B%22past-month%22%5D'
-        }
-        date_param = date_filter_map.get(config.DATE_FILTER, '%5B%22past-24h%22%5D')
+        date_param = config.SEARCH_FILTERS['DATE_POSTED'].get(config.DATE_FILTER, config.SEARCH_FILTERS['DATE_POSTED']['past-24h'])
         
         target_url = (
-            f"https://www.linkedin.com/search/results/content/"
+            f"{config.URLS['SEARCH']}"
             f"?keywords={encoded_kw}"
             f"&sortBy={sort_param}"
             f"&datePosted={date_param}"
@@ -216,7 +210,7 @@ class ScraperModule:
         if not self.browser_manager.navigate(target_url):
             return False
             
-        self.browser_manager.human_move_mouse()
+        self.browser_manager.human_mouse_move()
         time.sleep(random.uniform(4.0, 7.0))
         
         # Validate we are on the content tab
@@ -377,7 +371,7 @@ class ScraperModule:
             
             # Occasional random mouse move
             if random.random() < 0.3:
-                self.browser_manager.human_move_mouse()
+                self.browser_manager.human_mouse_move()
                 
             time.sleep(random.uniform(2.0, 3.5))
             
@@ -449,22 +443,77 @@ class ScraperModule:
             if get_full_html:
                 data['post_html'] = self.browser_manager.safe_get_attribute(post, 'outerHTML')
             
-            # Click see more
+            # Click see more - [UPDATED] with user specifics
             try:
-                more_selectors = config.SELECTORS['post']['see_more_button']
-                for selector in more_selectors:
+                # [NEW] Prioritize the user-specified button
+                expand_btn = post.find_element(By.XPATH, ".//button[@data-testid='expandable-text-button']")
+                if expand_btn and expand_btn.is_displayed():
+                     self.driver.execute_script("arguments[0].click();", expand_btn)
+                     time.sleep(random.uniform(0.5, 1.0))
+            except:
+                # [Keeping fallback logic just in case, but user wanted priority]
+                try:
+                    more_selectors = config.SELECTORS['post']['see_more_button']
+                    for selector in more_selectors:
+                        try:
+                            # We already tried checking the primary one above, this iterates the rest
+                            more_btns = post.find_elements(By.XPATH, selector)
+                            for btn in more_btns:
+                                if btn.is_displayed():
+                                    try:
+                                        self.driver.execute_script("arguments[0].click();", btn)
+                                        break
+                                    except: pass
+                        except: continue
+                except: pass
+            
+            # Post Text - [UPDATED] Prioritize extraction and saving FIRST
+            # User Request: "I want to just get post text first, then save it fo a file with post_id"
+            try:
+                text_elem = None
+                text_selectors = config.SELECTORS['post']['content_text']
+                
+                # [NEW] Prioritized Loop
+                for selector in text_selectors:
                     try:
-                        more_btns = post.find_elements(By.XPATH, selector)
-                        for btn in more_btns:
-                            if btn.is_displayed():
-                                # Try robust click directly
-                                try:
-                                    self.driver.execute_script("arguments[0].click();", btn)
-                                    time.sleep(random.uniform(0.5, 1.5))
-                                    break
-                                except: pass
+                        text_elem = post.find_element(By.XPATH, selector)
+                        if text_elem and self.browser_manager.safe_get_text(text_elem): 
+                            break
                     except: continue
-            except: pass
+
+                if text_elem:
+                    text = self.browser_manager.safe_get_text(text_elem)
+                    cleaned = self.clean_post_text(text)
+                    data['post_text'] = cleaned.encode('ascii', 'ignore').decode('ascii')
+                else: 
+                     # Fallback to old catch-all text
+                     # raw_all_text = self.browser_manager.safe_get_text(post)
+                     pass
+
+            except Exception as e:
+                logger.error(f"Text Extraction Failed: {e}", extra={"step_name": "Post Extraction"})
+            
+            # [NEW] Immediate File Save
+            # Get ID first to use filename
+            post_id = self.extract_post_id(post)
+            if post_id and data['post_text']:
+                try:
+                    import os
+                    save_dir = "saved_posts_raw"
+                    if not os.path.exists(save_dir):
+                        os.makedirs(save_dir)
+                    
+                    filename = os.path.join(save_dir, f"{post_id.replace(':', '_')}.txt")
+                    with open(filename, "w", encoding='utf-8') as f:
+                        f.write(data['post_text'])
+                    logger.info(f"Saved raw post text to {filename}", extra={"step_name": "Post Extraction"})
+                except Exception as save_err:
+                    logger.error(f"Failed to save raw text: {save_err}", extra={"step_name": "Post Extraction"})
+
+            
+            # [OLD LOGIC COMMENTED OUT AS REQUESTED]
+            # Name extraction etc. - we still do this but user said "extract all contacts later"
+            # leaving it active for now so the rest of the bot doesn't crash, but commented logic logic elsewhere
             
             # Name
             try:
@@ -499,31 +548,7 @@ class ScraperModule:
                     except: continue
             except: pass
             
-            # Text
-            try:
-                text_elem = None
-                text_selectors = config.SELECTORS['post']['content_text']
-                for selector in text_selectors:
-                    try:
-                        text_elem = post.find_element(By.XPATH, selector)
-                        # Quick check if it has text
-                        if text_elem and self.browser_manager.safe_get_text(text_elem): break
-                    except: continue
-                        
-                if text_elem:
-                    text = self.browser_manager.safe_get_text(text_elem)
-                    cleaned = self.clean_post_text(text)
-                    data['post_text'] = cleaned.encode('ascii', 'ignore').decode('ascii')
-                
-                # Final fallback for post text: capture all visible text if specific selectors failed
-                if not data['post_text'] or len(data['post_text']) < 20:
-                    try:
-                        raw_all_text = self.browser_manager.safe_get_text(post)
-                        cleaned = self.clean_post_text(raw_all_text)
-                        if len(cleaned) > len(data.get('post_text', '')):
-                            data['post_text'] = cleaned.encode('ascii', 'ignore').decode('ascii')
-                    except: pass
-            except: pass
+            # [REMOVED - Text extraction was here, moved up]
             
             data['is_relevant'] = self.processor.is_ai_tech_related(data['post_text'])
             data['has_job'] = self.processor.has_job_keywords(data['post_text'])

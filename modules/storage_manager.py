@@ -150,7 +150,7 @@ class StorageManager:
             
             post_url = post_data.get('post_url', '')
             if not post_url and post_id and 'urn:li:activity:' in post_id:
-                post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
+                post_url = f"{config.URLS['POST_BASE']}{post_id}/"
             
             has_email = bool(post_data.get('email'))
             has_phone = bool(post_data.get('phone'))

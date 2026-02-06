@@ -9,7 +9,31 @@ LINKEDIN_EMAIL = os.getenv('LINKEDIN_EMAIL')
 LINKEDIN_PASSWORD = os.getenv('LINKEDIN_PASSWORD')
 
 # Proxy Settings
-PROXY_URL = os.getenv('PROXY_URL') # Format: http://user:pass@host:port or host:port
+# PROXY_URL = os.getenv('PROXY_URL') # Format: http://user:pass@host:port or host:port
+
+# LinkedIn URLs
+URLS = {
+    "FEED": "https://www.linkedin.com/feed/",
+    "LOGIN": "https://www.linkedin.com/login",
+    "SEARCH": "https://www.linkedin.com/search/results/content/",
+    "POST_BASE": "https://www.linkedin.com/feed/update/"
+}
+
+# Search Filters (URL Parameters)
+SEARCH_FILTERS = {
+    "DATE_POSTED": {
+        "past-24h": "%5B%22past-24h%22%5D",
+        "past-week": "%5B%22past-week%22%5D",
+        "past-month": "%5B%22past-month%22%5D"
+    },
+    "SORT_BY": {
+        "date_posted": "%5B%22date_posted%22%5D",
+        "relevance": "relevance" # Usually empty or different, but keeping strict param structure if needed. 
+        # Actually, looking at scraper.py, the default sort was just hardcoded. 
+        # Let's verify the "relevance" param or leave it as a placeholder if not strictly used in URL same way.
+        # But for now, putting the encoded value for date_posted.
+    }
+}
 
 # Search Settings
 KEYWORDS_FILE = os.getenv('KEYWORDS_FILE', 'keywords.json')
@@ -84,6 +108,8 @@ SELECTORS = {
     },
     "post": {
         "containers": [
+            "//div[@data-component-type='LazyColumn']//div[@role='listitem']", # [NEW] User specified LazyColumn
+            "//div[@role='listitem']", # [NEW] Generic listitem
             "//div[contains(@class, 'feed-shared-update-v2')]",
             "//div[@data-view-name='feed-full-update']",
             "//div[contains(@class, 'reusable-search__result-container')]",
@@ -95,6 +121,7 @@ SELECTORS = {
             "//div[contains(@class, 'card-container')]"
         ],
         "see_more_button": [
+             "//button[@data-testid='expandable-text-button']", # [NEW] User specified
             ".//button[@data-testid='expandable-text-button']",
             ".//button[contains(@class, 'see-more')]",
             ".//button[contains(., 'more')]",
@@ -123,10 +150,10 @@ SELECTORS = {
             ".//div[contains(@class, 'update-components-text-view')]"
         ],
         "content_text": [
+            ".//div[@data-view-name='feed-commentary']", # [NEW] Prioritize per user
+            ".//p[@data-view-name='feed-commentary']",   # [NEW] Prioritize per user
             ".//p[@data-view-name='feed-commentary']//span[@data-testid='expandable-text-box']",
             ".//div[@data-view-name='feed-commentary']//span[@data-testid='expandable-text-box']",
-            ".//p[@data-view-name='feed-commentary']",
-            ".//div[@data-view-name='feed-commentary']",
             ".//span[@data-testid='expandable-text-box']",
             ".//div[contains(@class, 'update-components-text')]",
             ".//span[contains(@class, 'break-words')]",

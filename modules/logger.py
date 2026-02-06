@@ -30,9 +30,25 @@ def setup_logger(name="LinkedInBot"):
     
     # Check if handlers already exist to avoid duplicate logs
     if not logger.handlers:
+        # Stream Handler (Console)
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(AuditFormatter())
         logger.addHandler(handler)
+        
+        # File Handler (Disk)
+        try:
+            import os
+            log_dir = "logs"
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir)
+            
+            filename = f"{log_dir}/linkedin_bot_{datetime.now().strftime('%Y-%m-%d')}.log"
+            file_handler = logging.FileHandler(filename, encoding='utf-8')
+            file_handler.setFormatter(AuditFormatter())
+            logger.addHandler(file_handler)
+        except Exception as e:
+            # Fallback if file logging fails, don't crash the app
+            print(f"Failed to setup file logging: {e}")
         
     return logger
 
