@@ -1,5 +1,6 @@
 import os
 import csv
+import json
 import duckdb
 from datetime import datetime
 import config
@@ -15,11 +16,17 @@ class StorageManager:
         if not os.path.exists(self.output_date_dir):
             os.makedirs(self.output_date_dir)
             
-        self.posts_dir = "saved_posts" # Keep legacy if needed, or point to new one
+        self.posts_dir = "saved_posts"  # Now stores JSON files
+        if not os.path.exists(self.posts_dir):
+            os.makedirs(self.posts_dir)
+            
         self.processed_profiles = set()
         self.processed_posts = set()
         self.extracted_contacts_buffer = []
         self.db_file = 'linkedin_data.db'
+        
+        # In-memory cache for JSON data to avoid repeated file reads
+        self.posts_json_cache = {}
         
         self.load_processed_posts()
         self.profile_cache = {}
@@ -87,53 +94,94 @@ class StorageManager:
             logger.error(f"Could not load profiles for cache: {e}", extra={"step_name": "Storage Init"}, exc_info=True)
 
     def save_full_post(self, text, post_id, keyword, metadata=None):
-        """Save the actual post content to a separate file for storage."""
+        """Save the actual post content to JSON file (text only, no images)."""
         if config.DRY_RUN:
-            logger.info(f"[DRY RUN] Would save full post text for {post_id} to file", extra={"step_name": "Persistence"})
+            logger.info(f"[DRY RUN] Would save full post text for {post_id} to JSON", extra={"step_name": "Persistence"})
             return True
             
         try:
-            if not os.path.exists(self.posts_dir):
-                os.makedirs(self.posts_dir)
+            # Load existing posts for this keyword
+            posts_data = self._load_posts_json(keyword)
             
-            safe_keyword = keyword.replace(' ', '_').replace('/', '_')
-            filename = f"{safe_keyword}_posts.txt"
-            filepath = os.path.join(self.posts_dir, filename)
+            # Check if this post_id already exists in the JSON file
+            existing_post_ids = {post.get('post_id') for post in posts_data}
+            if post_id in existing_post_ids:
+                logger.debug(f"Post {post_id} already exists in JSON, skipping", extra={"step_name": "Persistence"})
+                return True
             
-            meta_text = ""
-            if metadata:
-                meta_text = (
-                    f"Full Name: {metadata.get('full_name', 'N/A')}\n"
-                    f"Email: {metadata.get('email', 'N/A')}\n"
-                    f"Phone: {metadata.get('phone', 'N/A')}\n"
-                    f"LinkedIn ID: {metadata.get('linkedin_id', 'N/A')}\n"
-                    f"Company: {metadata.get('company_name', 'N/A')}\n"
-                    f"Location: {metadata.get('location', 'N/A')}\n"
-                    f"Extraction Date: {metadata.get('extraction_date', 'N/A')}\n"
-                    f"Search Keyword: {metadata.get('search_keyword', 'N/A')}\n"
-                )
+            # Split text into lines for vertical format in JSON
+            post_lines = text.split('\n') if text else []
             
-            with open(filepath, 'a', encoding='utf-8') as f:
-                f.write("\n" + "=" * 80 + "\n")
-                f.write(f"POST ID: {post_id}\n")
-                f.write("-" * 80 + "\n")
-                if meta_text:
-                    f.write("METADATA:\n")
-                    f.write(meta_text)
-                    f.write("-" * 80 + "\n")
-                f.write("POST CONTENT:\n\n")
-                f.write(text)
-                f.write("\n\n")
+            # Extract author information from metadata if available
+            author_name = metadata.get('full_name', '') if metadata else ''
+            linkedin_id = metadata.get('linkedin_id', '') if metadata else ''
             
-            # Also save to CSV as per new requirement
+            # Create new post entry (text only, no images or other media)
+            new_post = {
+                "post_id": post_id,
+                "author_name": author_name,
+                "linkedin_id": linkedin_id,
+                "post_text": post_lines,  # Store as array of lines
+                "extraction_date": datetime.now().strftime('%Y-%m-%d'),
+                "search_keyword": keyword
+            }
+            
+            # Append to posts array
+            posts_data.append(new_post)
+            
+            # Save back to JSON file
+            self._save_posts_json(keyword, posts_data)
+            
+            # Also save to CSV as per existing requirement
             if metadata:
                 # Ensure post_id is in metadata if not already
-                if 'post_id' not in metadata: metadata['post_id'] = post_id
+                if 'post_id' not in metadata: 
+                    metadata['post_id'] = post_id
                 self.save_post_to_csv(metadata, keyword)
             
             return True
         except Exception as e:
-            logger.error(f"Error saving post: {e}", extra={"step_name": "Persistence", "post_id": post_id}, exc_info=True)
+            logger.error(f"Error saving post to JSON: {e}", extra={"step_name": "Persistence", "post_id": post_id}, exc_info=True)
+            return False
+
+    def _load_posts_json(self, keyword):
+        safe_keyword = keyword.replace(' ', '_').replace('/', '_')
+        # Check cache first
+        if safe_keyword in self.posts_json_cache:
+            return self.posts_json_cache[safe_keyword]
+        filename = f"{safe_keyword}_posts.json"
+        filepath = os.path.join(self.posts_dir, filename)
+        if not os.path.exists(filepath):
+            self.posts_json_cache[safe_keyword] = []
+            return []
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                posts_data = json.load(f)
+                self.posts_json_cache[safe_keyword] = posts_data
+                return posts_data
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing JSON file {filepath}: {e}", extra={"step_name": "Persistence"})
+            # Return empty list on parse error
+            return []
+        except Exception as e:
+            logger.error(f"Error loading JSON file {filepath}: {e}", extra={"step_name": "Persistence"})
+            return []
+    
+    def _save_posts_json(self, keyword, posts_data):
+        safe_keyword = keyword.replace(' ', '_').replace('/', '_')
+        filename = f"{safe_keyword}_posts.json"
+        filepath = os.path.join(self.posts_dir, filename)
+        
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(posts_data, f, indent=2, ensure_ascii=False)
+            
+            # Update cache
+            self.posts_json_cache[safe_keyword] = posts_data
+            logger.debug(f"Saved {len(posts_data)} posts to {filename}", extra={"step_name": "Persistence"})
+            return True
+        except Exception as e:
+            logger.error(f"Error writing JSON file {filepath}: {e}", extra={"step_name": "Persistence"})
             return False
 
     def save_post_metadata(self, post_data, keyword, post_id):
@@ -174,7 +222,6 @@ class StorageManager:
             return False
 
     def save_post_to_csv(self, post_data, keyword):
-        """Save post data to posts.csv."""
         if config.DRY_RUN: 
             logger.info(f"[DRY RUN] Would save post CSV row for {post_data.get('post_id')}", extra={"step_name": "Persistence"})
             return True
@@ -189,12 +236,8 @@ class StorageManager:
                 
                 if not file_exists:
                     writer.writeheader()
-                
-                # Extract post ID from metadata if available later, or pass it in. 
-                # Ideally this method should take raw data. Assumes post_data has keys.
-                # post_data is from Scraper.extract_post_data
                 writer.writerow({
-                    'post_id': post_data.get('post_id', 'N/A'), # Requires scraper to inject ID
+                    'post_id': post_data.get('post_id', 'N/A'), 
                     'post_url': post_data.get('post_url', ''),
                     'author_name': post_data.get('name', ''),
                     'post_text': post_data.get('post_text', ''),

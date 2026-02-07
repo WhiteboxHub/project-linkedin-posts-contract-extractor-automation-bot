@@ -1,7 +1,7 @@
 from collections import defaultdict
 from modules.logger import logger
 import json
-
+from datetime import datetime
 class MetricsTracker:
     def __init__(self):
         self.metrics = {
@@ -18,11 +18,9 @@ class MetricsTracker:
         }
 
     def start_session(self):
-        from datetime import datetime
         self.metrics['start_time'] = datetime.now()
 
     def end_session(self):
-        from datetime import datetime
         self.metrics['end_time'] = datetime.now()
 
     def increment(self, metric):
