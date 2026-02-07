@@ -12,7 +12,7 @@ class ProcessorModule:
             r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
         ]
         
-        # Invalid email patterns to exclude (mostly media extensions or placeholders)
+
         invalid_patterns = [
             r'\.png', r'\.jpg', r'\.jpeg', r'\.gif', r'\.svg',
             r'@2x\.', r'entity-circle', r'placeholder',
@@ -38,14 +38,15 @@ class ProcessorModule:
         if not text:
             return None
         patterns = [
-            r'\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',
-            r'\(\d{3}\)\s?\d{3}[-.\s]?\d{4}',
-            r'\d{3}[-.\s]?\d{3}[-.\s]?\d{4}',
+            r'\b\+?\d{1,3}[-.\s]\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b', 
+            r'\b\(\d{3}\)\s?\d{3}[-.\s]?\d{4}\b',
+            r'\b\d{10}\b', 
         ]
         for pattern in patterns:
             phones = re.findall(pattern, text)
             if phones:
-                return phones[0]
+                match = phones[0]
+                return match
         return None
     
     @staticmethod

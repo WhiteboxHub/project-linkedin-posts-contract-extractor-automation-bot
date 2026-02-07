@@ -546,6 +546,11 @@ class ScraperModule:
             
             # [REMOVED - Text extraction was here, moved up]
             
+            # Skip technical "posts" that are just long numeric IDs
+            if data['post_text'] and data['post_text'].strip().isdigit() and len(data['post_text'].strip()) > 8:
+                logger.debug(f"Skipping technical/numeric post container: {data['post_text'][:20]}...")
+                return data
+
             data['is_relevant'] = self.processor.is_ai_tech_related(data['post_text'])
             data['has_job'] = self.processor.has_job_keywords(data['post_text'])
             
@@ -553,6 +558,10 @@ class ScraperModule:
                 data['email'] = self.processor.extract_email(data['post_text'])
                 data['phone'] = self.processor.extract_phone(data['post_text'])
             
+            # Final Name cleanup: discard purely numeric names
+            if data['name'] and data['name'].strip().isdigit():
+                data['name'] = ""
+
             # Profile URL
             try:
                 link_selectors = config.SELECTORS['post']['profile_link']
