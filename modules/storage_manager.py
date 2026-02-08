@@ -12,17 +12,59 @@ class StorageManager:
     and file system storage for post content.
     """
     def __init__(self):
-        self.output_date_dir = os.path.join("output", datetime.now().strftime('%Y-%m-%d'))
+        self.current_date_str = datetime.now().strftime('%Y-%m-%d')
+        
+        # [UPDATED] Date-based structure for RAW posts
+        self.base_raw_dir = "data/raw_posts"
+        self.current_raw_dir = os.path.join(self.base_raw_dir, self.current_date_str)
+        
+        if not os.path.exists(self.current_raw_dir):
+            os.makedirs(self.current_raw_dir)
+            
+        # Output directory for CSVs (also date based)
+        self.output_date_dir = os.path.join("data/output", self.current_date_str)
         if not os.path.exists(self.output_date_dir):
             os.makedirs(self.output_date_dir)
             
-        self.posts_dir = "saved_posts"  # Now stores JSON files
-        if not os.path.exists(self.posts_dir):
-            os.makedirs(self.posts_dir)
+        self.posts_dir = self.current_raw_dir # Redirect posts_dir to the daily folder
             
         self.processed_profiles = set()
         self.processed_posts = set()
         self.extracted_contacts_buffer = []
+        self.db_file = 'linkedin_data.db'
+        
+        # In-memory cache for JSON data to avoid repeated file reads
+        self.posts_json_cache = {}
+        
+        self.load_processed_posts()
+        self.profile_cache = {}
+        self.load_processed_profiles()
+
+    def cleanup_old_data(self, days=7):
+        """Remove raw_posts folders older than 'days'."""
+        try:
+            if not os.path.exists(self.base_raw_dir):
+                return
+                
+            cutoff_time = datetime.now().timestamp() - (days * 86400)
+            
+            for item in os.listdir(self.base_raw_dir):
+                item_path = os.path.join(self.base_raw_dir, item)
+                if os.path.isdir(item_path):
+                    # Check if it matches YYYY-MM-DD format
+                    try:
+                        folder_date = datetime.strptime(item, '%Y-%m-%d')
+                        # Check modification time or just date? Date in name is safer.
+                        folder_ts = folder_date.timestamp()
+                        
+                        if folder_ts < cutoff_time:
+                            import shutil
+                            shutil.rmtree(item_path)
+                            logger.info(f"Cleaned up old data folder: {item}", extra={"step_name": "Storage Cleanup"})
+                    except ValueError:
+                        pass # Not a date folder
+        except Exception as e:
+            logger.error(f"Cleanup failed: {e}", extra={"step_name": "Storage Cleanup"})
         self.db_file = 'linkedin_data.db'
         
         # In-memory cache for JSON data to avoid repeated file reads

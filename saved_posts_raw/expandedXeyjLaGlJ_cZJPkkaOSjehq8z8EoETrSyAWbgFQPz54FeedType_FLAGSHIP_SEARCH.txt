@@ -1,0 +1,19 @@
+ Open to Work | Senior Python Developer 
+
+Im actively seeking new opportunities as a Sr. Python Developer with 8+ years of experience delivering scalable, enterprisegrade applications across Financial Services, Telecom, Insurance, and ECommerce domains.
+
+ Core Expertise: 
+Python, Django REST, FastAPI, Flask, Microservices
+Data Engineering: Pandas, NumPy, PySpark, Kafka, Snowflake, SQL
+Cloud & DevOps: AWS, Docker, Jenkins, GitHub Actions, Terraform, Airflow
+AI/LLM Integration: LangChain, RAG pipelines, LLM workflows
+
+ Open to C2C Roles
+ Remote / Hybrid / Onsite opportunities
+ Email: rankathi2@gmail.com
+ Phone: +1 (667) 8420968
+
+Please feel free to reach out or tag me if you know of any relevant opportunities.
+Looking forward to connecting!!
+
+#OpenToWork #PythonDeveloper #BackendDevelopment #Microservices #DataEngineering #AWS #FastAPI #Django #Snowflake #LLM #DevOps

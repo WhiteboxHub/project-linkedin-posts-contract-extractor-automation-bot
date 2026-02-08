@@ -11,7 +11,9 @@ from modules import ScraperModule, ProcessorModule
 from modules.browser_manager import BrowserManager
 from modules.storage_manager import StorageManager
 from modules.logger import logger
+from modules.logger import logger
 from job_activity_logger import JobActivityLogger
+from modules.processed_post_store import ProcessedPostStore
 
 
 class LinkedInBotComplete:
@@ -47,6 +49,7 @@ class LinkedInBotComplete:
             
         # Initialize modules
         self.processor = ProcessorModule()
+        self.processed_store = ProcessedPostStore()
         self.scraper = None  # Initialized after driver in init_driver
         
     def load_keywords(self):
@@ -102,7 +105,7 @@ class LinkedInBotComplete:
             post_id = self.scraper.extract_post_id(post)
             
             # Skip if we've already processed this post
-            if post_id and post_id in self.storage_manager.processed_posts:
+            if post_id and self.processed_store.is_processed(post_id):
                 self.metrics.track_skip("Already Processed")
                 continue
             
@@ -155,105 +158,40 @@ class LinkedInBotComplete:
             
             is_extracted = False
             
-            # Normalize profile URL to prevent duplicates due to trailing slashes
-            raw_url = post_data.get('profile_url')
-            normalized_url = raw_url.strip().rstrip('/') if raw_url else ""
+            # [DECOUPLED FLOW]
+            # We ONLY check for basic relevance (AI/Tech keywords).
+            # We do NOT check for email/phone here anymore.
+            # We save the raw post and move on.
             
             # Check relevance for full extraction
-            is_relevant = post_data['has_job'] and post_data['is_relevant']
+            is_relevant = post_data['is_relevant']
             
-            if normalized_url and is_relevant:
-                # CASE 1: New post, but we already have contact info for this person
-                if normalized_url in self.storage_manager.profile_cache:
-                    cached = self.storage_manager.profile_cache[normalized_url]
-                    logger.info(f"Cache Match: Re-extracting from {cached['full_name']}", extra={"step_name": "Data Enrichment", "post_id": post_id, "keyword": keyword})
-                    
-                    final_data = {
-                        'full_name': cached['full_name'],
-                        'email': cached['email'],
-                        'phone': cached['phone'],
-                        'linkedin_id': normalized_url,
-                        'company_name': cached['company_name'],
-                        'location': cached['location'],
-                        'post_url': post_url,
-                        'extraction_date': current_meta['extraction_date'],
-                        'search_keyword': keyword
-                    }
-                    if self.storage_manager.save_contact(final_data, keyword):
-                        self.total_saved += 1
-                        
-                    is_extracted = True
-                    found += 1
-                    self.metrics.increment('posts_extracted')
-                
-                # CASE 2: New post and brand new person
-                elif normalized_url not in self.storage_manager.processed_profiles:
-                    logger.info("New relevant post - Extracting full profile...", extra={"step_name": "Data Enrichment", "post_id": post_id, "keyword": keyword})
-                    profile_data = self.scraper.extract_full_profile_data(post_data['profile_url'])
-        
-                    best_email = profile_data['email'] or post_data['email']
-                    
-                    if best_email:
-                        found += 1
-                        logger.info(f"New Contact: {profile_data['full_name'] or post_data['name']}", extra={"step_name": "Data Enrichment", "post_id": post_id, "keyword": keyword})
-                        
-                        final_data = {
-                            'full_name': profile_data['full_name'] or post_data['name'],
-                            'email': best_email,
-                            'phone': profile_data['phone'] or post_data['phone'],
-                            'linkedin_id': profile_data['linkedin_id'],
-                            'company_name': profile_data['company_name'],
-                            'location': profile_data['location'],
-                            'post_url': post_url,
-                            'extraction_date': current_meta['extraction_date'],
-                            'search_keyword': keyword
-                        }
-                        
-                        current_meta.update(final_data)
-                        if self.storage_manager.save_contact(final_data, keyword):
-                            self.total_saved += 1
-                        
-                        # Add to cache to avoid re-visiting this profile in this run
-                        self.storage_manager.profile_cache[normalized_url] = final_data
-                        self.storage_manager.processed_profiles.add(normalized_url)
-                        
-                        is_extracted = True
-                        self.metrics.increment('posts_extracted')
-                    else:
-                        logger.info(f"Skipped: No email found for {profile_data['full_name'] or post_data['name']}", extra={"step_name": "Data Enrichment", "post_id": post_id, "keyword": keyword})
-                        self.storage_manager.processed_profiles.add(normalized_url)
-                        self.metrics.track_skip("No Email Found")
+            if is_relevant:
+                is_extracted = True 
+                found += 1
+                self.metrics.increment('posts_extracted')
+                self.total_saved += 1
             else:
-                if not normalized_url: 
-                    self.metrics.track_skip("No Profile URL")
-                elif normalized_url in self.storage_manager.processed_profiles: 
-                    pass # Already handled/skipped silently for performance usually, but let's count? 
-                    # Actually above logic handles cache match. If in processed_profiles but NOT in cache, it means we scanned it before and found no email/rejected.
-                    self.metrics.track_skip("Already Scanned Profile")
-                elif not is_relevant:
-                    reasons = []
-                    if not post_data['has_job']: reasons.append("No job keywords")
-                    if not post_data['is_relevant']: reasons.append("Not AI related")
-                    logger.info(f"Skip: {', '.join(reasons)}", extra={"step_name": "Relevance Check", "post_id": post_id, "keyword": keyword})
-                    self.metrics.track_skip(f"Irrelevant ({', '.join(reasons)})")
+                 reasons = []
+                 if not post_data['is_relevant']: reasons.append("Not matched keywords")
+                 logger.info(f"Skip: {', '.join(reasons)}", extra={"step_name": "Relevance Check", "post_id": post_id, "keyword": keyword})
+                 self.metrics.track_skip(f"Irrelevant ({', '.join(reasons)})")
             
-            # Save ALL posts (relevant or not) with best available metadata
-            if post_id:
-                status_msg = " (With Contact Info)" if is_extracted else ""
-                logger.debug(f"Saving post metadata{status_msg}...", extra={"step_name": "Persistence", "post_id": post_id})
+            # Save ALL posts that match keywords with best available metadata
+            if post_id and is_relevant:
+                # Save full post content for later rule-based extraction
+                full_text = f"{post_data.get('author_headline', '')}\n\n{post_data['post_text']}"
+                self.storage_manager.save_full_post(full_text, post_id, keyword, metadata=post_data)
                 
-                if self.storage_manager.save_full_post(post_data['post_text'], post_id, keyword, metadata=current_meta):
-                    pass
-
-                # Save metadata to CSV
+                # Save metadata to CSV (raw)
                 self.storage_manager.save_post_metadata(post_data, keyword, post_id)
                 
-                # Mark as processed
-                self.storage_manager.save_processed_post_id(post_id)
+                # Mark as processed using crash-safe store
+                self.processed_store.add(post_id)
                 self.posts_saved += 1
                 posts_processed += 1
             else:
-                 self.metrics.track_failure("No Post ID")
+                pass # Already skipped logging above
 
             time.sleep(random.uniform(1.5, 8.0))
         
@@ -279,15 +217,10 @@ class LinkedInBotComplete:
             # Check if we are already logged in via profile
             logger.info("Checking session...", extra={"step_name": "Startup"})
             self.browser_manager.navigate(config.URLS['FEED'])
-            time.sleep(random.uniform(4.0, 8.5))
-            
-            curr_url = self.browser_manager.get_current_url()
-            if "login" in curr_url or "checkpoint" in curr_url:
-                logger.info("Session not found or expired. Logging in...", extra={"step_name": "Startup"})
-                self.login()
-            else:
-                logger.info("Active session detected! Skipping login.", extra={"step_name": "Startup"})
-            
+            if not self.browser_manager.login(self.linkedin_email, self.linkedin_password):
+                logger.critical("Login failed!", extra={"step_name": "Login"})
+                return
+
             # CRITICAL: Validate UI before proceeding
             if not self.scraper.validate_selectors():
                 logger.critical("Aborting: UI does not match expected selectors.", extra={"step_name": "Startup"})
@@ -295,14 +228,17 @@ class LinkedInBotComplete:
 
             for idx, keyword in enumerate(self.keywords, 1):
                 if self.total_saved >= config.MAX_CONTACTS_PER_RUN:
-                    logger.info(f"[Limit Reached] Already saved {self.total_saved} contacts. Skipping remaining keywords.", extra={"step_name": "Orchestrator"})
+                    logger.info(f"Stop: Reached MAX_CONTACTS_PER_RUN ({config.MAX_CONTACTS_PER_RUN}).", extra={"step_name": "Keyword Processing"})
                     break
-                    
+                
                 logger.info(f"Starting Keyword {idx}/{len(self.keywords)}: {keyword}", extra={"step_name": "Orchestrator"})
                 self.process_keyword(keyword)
                 
+                # Random delay between keywords
                 if idx < len(self.keywords):
-                    time.sleep(random.uniform(2.5, 7.0))
+                    sleep_time = random.uniform(10, 20)
+                    logger.info(f"Sleeping {sleep_time:.1f}s before next keyword...", extra={"step_name": "Orchestrator"})
+                    time.sleep(sleep_time)
             
             # Perform bulk sync of extracting contacts to WBL Backend
             if self.storage_manager.extracted_contacts_buffer:
@@ -420,6 +356,15 @@ class LinkedInBotComplete:
             # Print detailed metrics summary
             self.metrics.end_session()
             self.metrics.print_summary()
+            
+            # [NEW] Run Post-Processing Data Extraction
+            try:
+                from modules.data_extractor import DataExtractor
+                logger.info("Browser closed. Starting offline data extraction...", extra={"step_name": "Shutdown"})
+                extractor = DataExtractor()
+                extractor.run()
+            except Exception as e:
+                logger.error(f"Post-processing failed: {e}", extra={"step_name": "Shutdown"})
 
 
 if __name__ == "__main__":
@@ -456,6 +401,15 @@ if __name__ == "__main__":
                             chrome_profile=cand.get('chrome_profile')
                         )
                         bot.run()
+                        
+                        # [NEW] Run Post-Processing Data Extraction
+                        try:
+                            from modules.data_extractor import DataExtractor
+                            logger.info("Browser closed. Starting offline data extraction...", extra={"step_name": "Shutdown"})
+                            extractor = DataExtractor()
+                            extractor.run()
+                        except Exception as e:
+                            logger.error(f"Post-processing failed: {e}", extra={"step_name": "Shutdown"}, exc_info=True)
                         
                         # Cool down between candidates
                         if i < len(candidates):

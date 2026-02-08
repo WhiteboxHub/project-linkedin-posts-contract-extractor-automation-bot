@@ -72,133 +72,14 @@ CHROME_PROFILE_NAME = os.getenv('CHROME_PROFILE_NAME', 'Default')
 CHROME_VERSION = os.getenv('CHROME_VERSION') # Leave empty for auto-detection
 
 # LinkedIn Selectors
-SELECTORS = {
-    "login": {
-        "username": ["username", "session_key", "email-or-phone"],
-        "password": ["password", "session_password"]
-    },
-    "search": {
-        "global_input": [
-            "//input[@data-view-name='search-global-typeahead-input']",
-            "//input[contains(@class, 'search-global-typeahead__input')]",
-            "//input[@placeholder='Search']"
-        ],
-        "posts_tab_button": [
-            "//button[contains(., 'Posts')]",
-            "//div[@id='search-reusables__filters-bar']//button[contains(., 'Posts')]"
-        ],
-        "sort_filter": {
-             "dropdown_button": [
-                 "//button[contains(., 'Sort by')]",
-                 "//button[@aria-label='Sort by']"
-             ],
-             "option_latest": [
-                 "//label[contains(., 'Latest')]",
-                 "//span[contains(., 'Latest')]"
-             ],
-             "option_relevance": [
-                 "//label[contains(., 'Top match')] | //label[contains(., 'Relevance')]",
-                 "//span[contains(., 'Top match')]"
-             ],
-             "show_results_button": [
-                 "//button[contains(., 'Show results')]",
-                 "//button[contains(@class, 'search-reusables__filter-show-results-button')]"
-             ]
-        }
-    },
-    "post": {
-        "containers": [
-            "//div[@data-component-type='LazyColumn']//div[@role='listitem']", # [NEW] User specified LazyColumn
-            "//div[@role='listitem']", # [NEW] Generic listitem
-            "//div[contains(@class, 'feed-shared-update-v2')]",
-            "//div[@data-view-name='feed-full-update']",
-            "//div[contains(@class, 'reusable-search__result-container')]",
-            "//li[contains(@class, 'reusable-search__result-container')]",
-            "//div[contains(@id, 'ember') and contains(@class, 'search-results__list-item')]",
-            "//*[contains(@data-view-name, 'feed-commentary')]/ancestor::div[contains(@class, 'update-v2')]",
-            "//*[contains(@data-testid, 'expandable-text-box')]/ancestor::div[contains(@class, 'update-v2')]",
-            "//div[contains(@class, 'feed-shared-update-v3')]",
-            "//div[contains(@class, 'card-container')]"
-        ],
-        "see_more_button": [
-             "//button[@data-testid='expandable-text-button']", # [NEW] User specified
-            ".//button[@data-testid='expandable-text-button']",
-            ".//button[contains(@class, 'see-more')]",
-            ".//button[contains(., 'more')]",
-            ".//span[contains(., '...more')]",
-            ".//button[contains(@aria-label, 'see more')]"
-        ],
-        "load_more_results": [
-            "//button[.//span[contains(text(), 'Load more')]]",
-            "//button[contains(., 'Load more')]",
-            "//button[contains(., 'Show more results')]",
-            "//button[contains(@class, 'infinite-scroll')]"
-        ],
-        "author_name": [
-            ".//span[@aria-hidden='true']",
-            ".//span[contains(@class, 'update-components-actor__name')]",
-            ".//span[contains(@class, 'entity-result__title-text')]",
-            ".//div[contains(@class, 't-black')]//span",
-            ".//div[contains(@class, 'actor')]//span",
-            ".//p[contains(@class, 'actor')]//span",
-            ".//a[contains(@href, '/in/')]//span"
-        ],
-        "author_headline": [
-            ".//span[contains(@class, 'update-components-actor__description')]",
-            ".//div[contains(@class, 'entity-result__primary-subtitle')]",
-            ".//p[contains(@class, 't-12')]",
-            ".//div[contains(@class, 'update-components-text-view')]"
-        ],
-        "content_text": [
-            ".//div[@data-view-name='feed-commentary']", # [NEW] Prioritize per user
-            ".//p[@data-view-name='feed-commentary']",   # [NEW] Prioritize per user
-            ".//p[@data-view-name='feed-commentary']//span[@data-testid='expandable-text-box']",
-            ".//div[@data-view-name='feed-commentary']//span[@data-testid='expandable-text-box']",
-            ".//span[@data-testid='expandable-text-box']",
-            ".//div[contains(@class, 'update-components-text')]",
-            ".//span[contains(@class, 'break-words')]",
-            ".//div[contains(@class, 'feed-shared-update-v2__description')]",
-            ".//div[contains(@class, 'feed-shared-update-v2__commentary')]",
-            ".//div[@data-view-name='feed-full-update']//span"
-        ],
-        "profile_link": [
-            ".//a[contains(@href, '/in/')]",
-            ".//a[contains(@class, 'update-components-actor__container-link')]",
-            ".//a[contains(@class, 'app-aware-link') and contains(@href, '/in/')]",
-            ".//a[contains(@data-test-app-aware-link, '') and contains(@href, '/in/')]"
-        ],
-        "extract_id": {
-            "urn_component": [
-                ".//*[@componentkey or @data-urn]",
-                ".//*[@data-activity-urn]"
-            ],
-            "time_link": [
-                ".//a[contains(@href, 'feed/update/urn:li:activity:')]",
-                ".//a[contains(@href, '/feed/update/')]"
-            ],
-            "copy_link_text": [
-                ".//*[contains(text(), 'Copy link to post')]",
-                ".//li-icon[contains(@type, 'link')]"
-            ]
-        }
-    },
-    "profile": {
-        "full_name": [
-            "//h1[contains(@class, 't-24')]",
-            "//h1"
-        ],
-        "location": [
-            "//span[contains(@class, 'text-body-small') and contains(., ',')]",
-            "//div[contains(@class, 'mt2')]//span[contains(text(), ',')]"
-        ],
-        "company": [
-            "//div[contains(@class, 'inline-show-more-text')]//div[contains(@class, 'inline-show-more-text--is-collapsed')]",
-            "//section[contains(@id, 'experience')]//div[contains(@class, 'pvs-entity__path-node')]//span[contains(@aria-hidden, 'true')]",
-            "//section[contains(@id, 'experience')]//span[contains(@class, 't-bold')]",
-            "//div[@id='experience']//span[@aria-hidden='true']"
-        ],
-        "contact_info_link": "//a[contains(@href, 'overlay/contact-info')]",
-        "email_mailto": "//a[contains(@href, 'mailto:')]",
-        "phone_section": "//section[contains(@class, 'pv-contact-info')]"
-    }
-}
+# LinkedIn Selectors - Loaded from JSON
+import json
+try:
+    with open('selectors.json', 'r') as f:
+        SELECTORS = json.load(f)
+except FileNotFoundError:
+    print("Error: selectors.json not found. Creating default empty selectors.")
+    SELECTORS = {}
+except json.JSONDecodeError as e:
+    print(f"Error parsing selectors.json: {e}")
+    SELECTORS = {}

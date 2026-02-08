@@ -1,0 +1,72 @@
+Recognizing MNIST Digits with MLP: A Deep Dive
+
+MNIST is the "Hello World" of deep learning. Here's how a multi-layer perceptron recognizes handwritten digits.
+
+THE PROBLEM:
+MNIST: 2828 pixel images of handwritten digits (0-9)
+60,000 training images
+Goal: Classify each image into the correct digit
+
+THE ARCHITECTURE:
+Input Layer: 784 neurons (2828 flattened)
+Hidden Layer 1: 128 neurons (ReLU)
+Hidden Layer 2: 64 neurons (ReLU)
+Output Layer: 10 neurons (Softmax)
+
+Why This Design:
+784  128  64  10: Gradual dimensionality reduction
+ReLU in hidden: Enables non-linear learning
+Softmax in output: Converts to probabilities
+
+FORWARD PROPAGATION:
+Input: 2828 image  Flattened to 784 values (normalized 0-1)
+Hidden Layer 1: h1 = ReLU(W1  input + b1)  128 features
+Hidden Layer 2: h2 = ReLU(W2  h1 + b2)  64 features
+Output: Softmax(W3  h2 + b3)  10 probabilities
+
+Example:
+Image of "7"  Forward  Output: [0.01, 0.02, ..., 0.82, ...]
+Highest probability (0.82) at index 7  Prediction: "7"
+
+LOSS FUNCTION:
+Categorical Cross-Entropy
+Compares predicted probabilities to the true label
+Penalizes confident wrong predictions
+
+BACKPROPAGATION:
+Calculates gradients for each weight
+Updates W1, W2, W3, b1, b2, b3
+Learns digit patterns from training data
+
+TRAINING PROCESS:
+Forward: Image  MLP  Predictions
+Loss: Compare prediction to true label
+Backward: Compute gradients
+Update: Adjust weights (Adam optimizer)
+Repeat: Process all 60,000 images
+Result: 98%+ accuracy
+
+KEY INSIGHTS:
+Hidden Layer 1 learns edges and curves
+Hidden Layer 2 combines features into digit patterns
+Softmax ensures probabilities sum to 1
+ReLU enables non-linear feature extraction
+
+THE REALITY:
+MNIST is simple but teaches fundamentals:
+Forward/backward propagation
+Loss functions and optimization
+Activation functions
+Architecture design
+
+THE LESSON:
+MLPs can achieve 98%+ accuracy on MNIST with proper architecture, activations, and training. Understanding MNIST is the foundation for more complex computer vision tasks.
+
+WHAT'S YOUR EXPERIENCE?
+Have you trained an MLP on MNIST? What accuracy did you achieve?
+
+ Check out the architecture diagram below. 
+ Follow me for more ML architecture insights
+ Repost if helpful
+
+#DeepLearning #NeuralNetworks #MachineLearning #AI #DataScience #MNIST #MLP #TechInsights #MLOps #ComputerVision

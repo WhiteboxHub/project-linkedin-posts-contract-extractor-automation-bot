@@ -277,114 +277,89 @@ class ScraperModule:
             return False
 
     def get_posts(self, processed_posts=None):
-        """Scan and collect post elements from the search result page."""
+        """
+        Scroll aggressively to the bottom to load ALL posts, then collect them.
+        """
         processed_posts = processed_posts or set()
-        logger.info("Scanning for posts...", extra={"step_name": "Collection"})
+        logger.info("Scrolling to load all available posts...", extra={"step_name": "Collection"})
         
-        last_total = 0
         last_height = self.driver.execute_script("return document.body.scrollHeight")
         no_growth_count = 0
-        height_stagnation_count = 0
+        max_scrolls = 100 # Aggressive limit to get "all" posts
         
-        # Maintain a map of p_id -> element to ensure uniqueness within this batch
-        found_new_posts = {} 
-        
-        # Track history for smarter exits
-        visible_count_history = []
-        
-        for i in range(1, 21): # Limit to 20 scrolls per keyword
-            current_elements = self._find_post_elements()
+        for i in range(1, max_scrolls + 1):
+            # 1. Scroll Logic
+            scroll_by = 2000
+            self.browser_manager.human_scroll(limit_range=(scroll_by-200, scroll_by+200))
+            time.sleep(random.uniform(2.5, 4.0)) # Wait for network load
             
-            # Filter valid elements
-            valid_elements = []
-            for p in current_elements:
-                try:
-                    if p.is_displayed(): valid_elements.append(p)
-                except: continue
+            # 2. Check for "Load More" / "Show more results" buttons
+            # We check this frequently to ensure we don't get stuck
+            try:
+                load_more_selectors = config.SELECTORS['post']['load_more_results']
+                if isinstance(load_more_selectors, str): load_more_selectors = [load_more_selectors]
                 
-            total_visible = len(valid_elements)
-            visible_count_history.append(total_visible)
-            
+                clicked_load = False
+                for selector in load_more_selectors:
+                    if self.browser_manager.wait_click(selector, timeout=2, retries=1):
+                        logger.info(f"Clicked 'Load More' to fetch more results...", extra={"step_name": "Collection"})
+                        clicked_load = True
+                        no_growth_count = 0 # Reset stagnation on successful click
+                        time.sleep(5) # Allow time for new batch to load
+                        break
+                
+                if not clicked_load:
+                    # Fallback generic button text check if specific selectors fail
+                    try:
+                        btns = self.driver.find_elements(By.TAG_NAME, "button")
+                        for btn in btns:
+                            if btn.is_displayed() and "show more results" in btn.text.lower():
+                                self.driver.execute_script("arguments[0].click();", btn)
+                                logger.info("Clicked generic 'Show more results' button", extra={"step_name": "Collection"})
+                                no_growth_count = 0
+                                time.sleep(5)
+                                break
+                    except: pass
+            except: pass
+
+            # 3. Growth Check
             current_height = self.driver.execute_script("return document.body.scrollHeight")
             
-            new_this_scroll = 0
-            for p in valid_elements:
-                try:
-                    p_id = self.extract_post_id(p)
-                    # Deduplication logic:
-                    # 1. Must have ID
-                    # 2. Must not be in global processed list
-                    # 3. Must not be in current batch found list
-                    if p_id and p_id not in processed_posts:
-                        if p_id not in found_new_posts:
-                            found_new_posts[p_id] = p
-                            new_this_scroll += 1
-                except StaleElementReferenceException:
-                    continue
-            
-            new_total = len(found_new_posts)
-            
-            # Growth detection logic: Check both element count and page height
-            has_element_growth = total_visible > last_total
-            has_height_growth = current_height > last_height
-            
-            if has_element_growth or has_height_growth:
-                growth_msg = []
-                if has_element_growth: growth_msg.append(f"posts {last_total}->{total_visible}")
-                if has_height_growth: growth_msg.append(f"height {last_height}->{current_height}")
-                
-                logger.info(f"Scroll {i}: Growth detected ({', '.join(growth_msg)}). Found {new_total} new posts so far.", extra={"step_name": "Collection"})
-                last_total = total_visible
+            if current_height > last_height:
+                logger.info(f"Scroll {i}/{max_scrolls}: Page height grew ({last_height} -> {current_height})", extra={"step_name": "Collection"})
                 last_height = current_height
                 no_growth_count = 0
-                height_stagnation_count = 0 
             else:
                 no_growth_count += 1
-                height_stagnation_count += 1
                 if no_growth_count % 2 == 0:
-                    logger.debug(f"Scroll {i}: No growth detected (Height stagnant for {height_stagnation_count} scrolls)...", extra={"step_name": "Collection"})
-            
-            # Hard exit on height stagnation
-            if height_stagnation_count > 2:
-                logger.info(f"Stop: Height stagnant for {height_stagnation_count} scrolls. Terminating search.", extra={"step_name": "Collection"})
-                break
+                    logger.debug(f"Scroll {i}/{max_scrolls}: No growth ({no_growth_count} scrolls)...", extra={"step_name": "Collection"})
 
-            # Adaptive scroll distance
-            scroll_by = 1200 if no_growth_count < 3 else 2500
-            # Use Human Scroll
-            self.browser_manager.human_scroll(limit_range=(scroll_by-200, scroll_by+200))
-            
-            # Occasional random mouse move
-            if random.random() < 0.3:
-                self.browser_manager.human_mouse_move()
-                
-            time.sleep(random.uniform(2.0, 3.5))
-            
-            # Explicit "Load more" check
-            if i % 3 == 0 or height_stagnation_count >= 2:
-                try:
-                    load_more_selectors = config.SELECTORS['post']['load_more_results']
-                    if isinstance(load_more_selectors, str): load_more_selectors = [load_more_selectors]
-                    
-                    for selector in load_more_selectors:
-                        # Try robust waiter first
-                        if self.browser_manager.wait_click(selector, timeout=4, retries=2):
-                            logger.info(f"Clicked 'Load More' button to force growth...", extra={"step_name": "Collection"})
-                            no_growth_count = 0 
-                            height_stagnation_count = 0 
-                            time.sleep(4)
-                            break
-                except: pass
-
-            if no_growth_count >= 6: # Tighter limit for no growth
-                logger.info("Stop: Reached end of content (no growth detected).", extra={"step_name": "Collection"})
-                break
-            if new_total >= 60: 
-                logger.info(f"Stop: Found sufficient new posts ({new_total}).", extra={"step_name": "Collection"})
+            # 4. Exit Conditions
+            if no_growth_count >= 5:
+                logger.info("Stop: No page growth detected for 5 consecutive scrolls. Assuming end of results.", extra={"step_name": "Collection"})
                 break
         
-        # Return unique list
-        return list(found_new_posts.values())
+        # 5. Final Collection
+        logger.info("Finished scrolling. collecting all loaded posts...", extra={"step_name": "Collection"})
+        all_elements = self._find_post_elements()
+        
+        # Deduplicate and return valid new posts
+        unique_posts = []
+        seen_ids_locally = set()
+        
+        for p in all_elements:
+            try:
+                # Basic visibility check
+                if not p.is_displayed(): continue
+                
+                p_id = self.extract_post_id(p)
+                if p_id and p_id not in processed_posts and p_id not in seen_ids_locally:
+                    unique_posts.append(p)
+                    seen_ids_locally.add(p_id)
+            except: continue
+            
+        logger.info(f"Collection complete. Found {len(unique_posts)} new unique posts.", extra={"step_name": "Collection"})
+        return unique_posts
 
     def _find_post_elements(self):
         """Internal helper to find posts on the page."""
@@ -427,39 +402,36 @@ class ScraperModule:
         try:
             if get_full_html:
                 data['post_html'] = self.browser_manager.safe_get_attribute(post, 'outerHTML')
-            
-            # Click see more - [UPDATED] with user specifics
-            # Click see more - [UPDATED] Aggressive Loop
+            # Click see more - [UPDATED] Aggressive Loop with stale protection
             try:
-                # Iterate multiple times to catch nested "more" buttons
                 more_selectors = config.SELECTORS['post']['see_more_button']
                 if isinstance(more_selectors, str): more_selectors = [more_selectors]
                 
-                # Combine all selectors into one massive find if possible, or iterate
-                # Better to iterate and find *all* matching buttons in the post
-                clicked_any = False
-                for _ in range(2): # Try twice in case expansion reveals more
-                    visible_btns = []
+                # Retry loop to catch buttons that might appear or need re-clicking
+                for attempt in range(3): 
+                    clicked_any = False
+                    
+                    # Re-find buttons on every attempt to avoid stale elements
                     for sel in more_selectors:
                         try:
-                            found = post.find_elements(By.XPATH, sel)
-                            for btn in found:
+                            found_btns = post.find_elements(By.XPATH, sel)
+                            for btn in found_btns:
                                 if btn.is_displayed():
-                                    visible_btns.append(btn)
+                                    try:
+                                        # Try standard click first
+                                        btn.click()
+                                        clicked_any = True
+                                    except:
+                                        # Fallback to JS click
+                                        self.driver.execute_script("arguments[0].click();", btn)
+                                        clicked_any = True
+                                    time.sleep(0.1)
                         except: continue
                     
-                    if not visible_btns:
-                        break
-                        
-                    for btn in visible_btns:
-                        try:
-                            self.driver.execute_script("arguments[0].click();", btn)
-                            clicked_any = True
-                            time.sleep(random.uniform(0.3, 0.6))
-                        except: pass
+                    if not clicked_any:
+                        break # No buttons found/clicked, stop trying
                     
-                    if clicked_any:
-                        time.sleep(0.5)
+                    time.sleep(0.5) # Wait for expansion
             except Exception as e:
                 logger.debug(f"Error clicking see more: {e}", extra={"step_name": "Post Extraction"})
             
@@ -580,80 +552,4 @@ class ScraperModule:
         
         return data
 
-    def extract_full_profile_data(self, profile_url):
-        """Navigate to profile page and extract full details."""
-        profile_data = {
-            'full_name': '', 'email': '', 'phone': '',
-            'company_name': '', 'location': '', 'linkedin_id': profile_url
-        }
-        
-        try:
-            self.driver.execute_script("window.open('');")
-            self.driver.switch_to.window(self.driver.window_handles[-1])
-            self.driver.get(profile_url)
-            time.sleep(4)
-            
-            try:
-                for selector in config.SELECTORS['profile']['full_name']:
-                    try:
-                        name_elem = self.driver.find_element(By.XPATH, selector)
-                        profile_data['full_name'] = name_elem.text.strip()
-                        break
-                    except: pass
-            except: pass
-            
-            try:
-                for selector in config.SELECTORS['profile']['location']:
-                    try:
-                        loc_elem = self.driver.find_element(By.XPATH, selector)
-                        profile_data['location'] = loc_elem.text.strip()
-                        break
-                    except: pass
-            except: pass
-        
-            try:
-                company_selectors = config.SELECTORS['profile']['company']
-                for selector in company_selectors:
-                    try:
-                        company_elem = self.driver.find_element(By.XPATH, selector)
-                        company_text = company_elem.text.strip()
-                        if company_text and 0 < len(company_text) < 100:
-                            profile_data['company_name'] = company_text
-                            break
-                    except: continue
-            except: pass
-            
-            try:
-                contact_btn = WebDriverWait(self.driver, 3).until(
-                    EC.element_to_be_clickable((By.XPATH, config.SELECTORS['profile']['contact_info_link']))
-                )
-                contact_btn.click()
-                time.sleep(3)
-                
-                try:
-                    email_link = self.driver.find_element(By.XPATH, config.SELECTORS['profile']['email_mailto'])
-                    profile_data['email'] = email_link.get_attribute('href').replace('mailto:', '')
-                except:
-                    email = self.processor.extract_email(self.driver.page_source)
-                    if email: profile_data['email'] = email
-        
-                try:
-                    phone_section = self.driver.find_element(By.XPATH, config.SELECTORS['profile']['phone_section'])
-                    phone = self.processor.extract_phone(phone_section.text)
-                    if phone: profile_data['phone'] = phone
-                except: pass
-                    
-            except:
-                page_text = self.driver.page_source
-                if not profile_data['email']: profile_data['email'] = self.processor.extract_email(page_text)
-                if not profile_data['phone']: profile_data['phone'] = self.processor.extract_phone(page_text)
-            
-            self.driver.close()
-            self.driver.switch_to.window(self.driver.window_handles[0])
-            return profile_data
-        except:
-            try:
-                if len(self.driver.window_handles) > 1: self.driver.close()
-                self.driver.switch_to.window(self.driver.window_handles[0])
-            except: pass
-            return profile_data
+    # [REMOVED] extract_full_profile_data - strictly feed-only now.

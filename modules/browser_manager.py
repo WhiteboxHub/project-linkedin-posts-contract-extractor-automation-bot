@@ -180,14 +180,24 @@ class BrowserManager:
             
     def login(self, email, password):
         """Perform login if needed."""
+        # Check if already logged in
+        if "feed" in self.get_current_url():
+            logger.info("Already logged in (Feed detected).", extra={"step_name": "BrowserManager"})
+            return True
+
         logger.info("Logging in...", extra={"step_name": "BrowserManager"})
         if not self.driver:
             logger.error("Error: Driver not initialized!", extra={"step_name": "BrowserManager"})
-            return
+            return False
 
         self.navigate(config.URLS['LOGIN'])
         time.sleep(2)
         
+        # Check again if redirect handled it
+        if "feed" in self.get_current_url():
+             logger.info("Redirected to Feed. Logged in.", extra={"step_name": "BrowserManager"})
+             return True
+
         # Helper to try list of selectors
         def send_keys_to_first_found(selectors, value, key_to_press=None):
             if isinstance(selectors, str): selectors = [selectors]
@@ -213,6 +223,7 @@ class BrowserManager:
 
         time.sleep(5)
         logger.info("Logged in!", extra={"step_name": "BrowserManager"})
+        return True
 
     def human_scroll(self, limit_range=(800, 1200)):
         """

@@ -30,7 +30,7 @@ project-root/
 │   ├── storage_manager.py   # Manages CSV/DB I/O, file structure, and deduplication.
 │   ├── metrics_manager.py   # Centralized tracking of counters, skips, and failures.
 │   └── logger.py            # Structured JSON logging for audit trails.
-├── linkedin_bot_complete.py # Main Orchestrator. Coordinates the flow between modules.
+├── main.py                  # Main Orchestrator. Coordinates the flow between modules.
 ├── config.py                # Configuration loader (Env vars, Selectors, Constants).
 ├── keywords.json            # List of target search queries.
 ├── job_activity_logger.py   # Integration with external backend (WBL).
@@ -88,13 +88,13 @@ Edit `keywords.json` to target specific roles:
 
 ### Standard Run
 ```bash
-python linkedin_bot_complete.py
+python main.py
 ```
 
 ### Dry Run (Testing)
 Set `DRY_RUN=True` in `.env` or `config.py` to simulate actions without saving data:
 ```bash
-python linkedin_bot_complete.py
+python main.py
 ```
 *Useful for verifying selectors and navigation logic.*
 

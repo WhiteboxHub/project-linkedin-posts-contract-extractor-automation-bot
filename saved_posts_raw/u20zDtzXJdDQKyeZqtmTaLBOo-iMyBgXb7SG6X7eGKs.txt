@@ -1,0 +1,30 @@
+#W2/USC/GC #DynatraceObservability#Engineer at #McLean,#Virginia, #US
+Client: #TCS #Salary: $80/hr #Contract (6 Months) #onsite
+Industry: Information Technology and Services
+Experience Required (yrs): 10 Function: Information Technology
+Experience Level: Mid-senior Education Level: Bachelors degree
+Email: brajesh@delbangindia.com #localcandidate only!
+Role: Dynatrace Observability Engineer
+Skills: Digital: Splunk, Digital: Salesforce Development and Technical Design, Dynatrace (MUST HAVE)
+Exp: 10 & Above
+Role Descriptions:
+10 years of hands-on experience with Dynatrace APM (SaaS or Managed environment).Strong understanding of observability pillars metrics| logs| traces| events.Deep knowledge of cloud platforms (AWS| Azure| GCP) and or Kubernetes.
+Experience configuring dashboards| alerts| tagging rules| management zones| and dashboards.
+Solid understanding of microservices| distributed systems| APIs| and application performance concepts.
+Proficiency with automation scripting tools (Python| Bash| PowerShell| YAML).
+Familiarity with CICD tools (Jenkins| Azure DevOps| GitHub Actions| GitLab).
+Preferred
+Qualifications
+Dynatrace Certifications (Associate| Professional| or extensions in APM CloudKubernetes).
+Experience with Monaco| Dynatrace GrailLogs| or Open Telemetry. Exposure to SRE practices| chaos engineering| or performance engineering. Background integrating Dynatrace with tools such as ServiceNow| PagerDuty| Splunk| Prometheus| Grafana| Slack Teams.
+Knowledge of network monitoring and synthetic testing.
+Roles Responsibilities
+Dynatrace Platform Ownership Administer and maintain the Dynatrace platform| including upgrades| configurations| integrations| and governance. Deploy and manage One Agents and Active Gates across cloud| on premise| and containerized environments (Kubernetes OpenShift).
+Build and manage dashboards| alerts| SLOs| custom events| tagging rules| and management zones.
+Observability APM Engineering Implement end-to-end monitoring for applications| APIs| infrastructure| logs| and user experience.
+Configure distributed tracing| service flow mapping| synthetic monitoring| and RUM.
+Develop automated instrumentation strategies for microservices| serverless functions| and container workloads.
+Performance Reliability Engineering Analyze application performance| latency| bottlenecks| and error trends using Davis AI insights.
+Partner with application teams to drive performance tuning and root-cause remediation.
+Define SLOs SLIs aligned with business KPIs and reliability objectives.
+Integrations Automation Integrate Dynatrace with CICD pipelines| ITSM tools| logging platforms| and event management systems.Build automation scripts (PowerShell| Bash| Python| Ansible| etc.) to streamline deployments and configuration.
