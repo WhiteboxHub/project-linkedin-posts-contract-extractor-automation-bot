@@ -76,7 +76,23 @@ class BrowserManager:
             
             # use_subprocess=True helps with "cannot connect to chrome" errors on Windows
             self.driver = uc.Chrome(options=chrome_options, version_main=version, use_subprocess=True)
-            
+        except Exception as e:
+            logger.warning(f"Undetected ChromeDriver failed: {e}. Falling back to standard Selenium ChromeDriver...", extra={"step_name": "BrowserManager"})
+            try:
+                import selenium.webdriver as webdriver
+                # Standard Selenium fallback
+                # We need to strip 'undetected' specific options if any, but most are compatible.
+                # However, we must NOT use version_main or use_subprocess for standard driver
+                from selenium.webdriver.chrome.service import Service as ChromeService
+                from webdriver_manager.chrome import ChromeDriverManager
+                
+                service = ChromeService(ChromeDriverManager().install())
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            except Exception as fallback_e:
+                 logger.critical(f"Standard Selenium fallback also failed: {fallback_e}", extra={"step_name": "BrowserManager"})
+                 raise e 
+
+        try:
             # Apply selenium-stealth to further mask automation signals
             stealth(self.driver,
                 languages=["en-US", "en"],
@@ -180,9 +196,23 @@ class BrowserManager:
             
     def login(self, email, password):
         """Perform login if needed."""
-        # Check if already logged in
-        if "feed" in self.get_current_url():
-            logger.info("Already logged in (Feed detected).", extra={"step_name": "BrowserManager"})
+        # Check if already logged in (Stricter check)
+        # Just checking URL is insufficient as guest page can have 'feed' in parameters
+        
+        def is_logged_in_check():
+             if "feed" not in self.get_current_url(): return False
+             # Check for search bar as proxy for "logged in UI"
+             try:
+                 # Re-use the robust selector list if possible, or just a known simple one
+                 if self.driver.find_elements(By.XPATH, "//input[contains(@class, 'search-global-typeahead__input')]"):
+                     return True
+                 if self.driver.find_elements(By.XPATH, "//input[contains(@placeholder, 'Search')]"):
+                     return True
+             except: pass
+             return False
+
+        if is_logged_in_check():
+            logger.info("Already logged in (Feed & UI detected).", extra={"step_name": "BrowserManager"})
             return True
 
         logger.info("Logging in...", extra={"step_name": "BrowserManager"})

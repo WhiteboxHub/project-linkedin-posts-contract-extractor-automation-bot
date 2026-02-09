@@ -9,6 +9,10 @@ geckodriver
 output.csv
 chrome_profile/
 myenv/
+
+logs/
+data/
+saved_posts_raw/
 saved_posts/
 venv/
 *.db
