@@ -5,12 +5,14 @@ from datetime import datetime
 from glob import glob
 from modules.processor import ProcessorModule
 from modules.logger import logger
+from job_activity_logger import JobActivityLogger
 
 class DataExtractor:
     def __init__(self, raw_data_dir="data/raw_posts", output_dir="data/output"):
         self.raw_data_dir = raw_data_dir
         self.output_dir = output_dir
         self.processor = ProcessorModule()
+        self.activity_logger = JobActivityLogger()
         
     def run(self):
         """
@@ -51,15 +53,54 @@ class DataExtractor:
             except Exception as e:
                 logger.error(f"Error processing file {dim_file}: {e}", extra={"step_name": "Extraction"})
                 
-        # Validate output dir
+        # --- 3. SAVE TO DATE FOLDERS ---
         out_path = os.path.join(self.output_dir, today_str)
         if not os.path.exists(out_path):
             os.makedirs(out_path)
             
-        self._save_contacts(all_contacts, out_path)
-        self._save_jobs(all_jobs, out_path)
+        self._save_contacts(all_contacts, out_path, filename="contacts_extracted")
+        self._save_jobs(all_jobs, out_path, filename="jobs")
         
-        logger.info(f"Extraction complete. Contacts: {len(all_contacts)}, Jobs: {len(all_jobs)}.", extra={"step_name": "Extraction"})
+        # Consolidated master logic removed as per user request
+
+        
+        # --- 5. SYNC TO BACKEND (Bulk Contacts) ---
+        if all_contacts:
+            logger.info(f"Syncing {len(all_contacts)} contacts to vendor daily contract...", extra={"step_name": "Sync"})
+            unique_contacts = list({c['email']: c for c in all_contacts}.values())
+            success = self.activity_logger.bulk_save_vendor_contacts(unique_contacts)
+            if success:
+                logger.info(f"Successfully synced {len(unique_contacts)} contacts to backend.", extra={"step_name": "Sync"})
+            else:
+                logger.error("Failed to sync contacts to backend. Check your WBL_API_TOKEN.", extra={"step_name": "Sync"})
+
+        # --- 6. LOG SESSION SUMMARY (Job Activity Log) ---
+        summary_note = f"LinkedIn Extraction Complete: {len(all_contacts)} contacts found today, {len(all_jobs)} jobs identified."
+        
+        # Read the content of the extracted CSV to include in notes
+        csv_content = ""
+        csv_file_path = os.path.join(out_path, "contacts_extracted.csv")
+        if os.path.exists(csv_file_path):
+            try:
+                with open(csv_file_path, 'r', encoding='utf-8') as f:
+                    csv_content = f.read()
+            except Exception as e:
+                logger.warning(f"Failed to read CSV for logging: {e}", extra={"step_name": "Logging"})
+                csv_content = "[Error reading CSV file]"
+        
+        # Combine summary and CSV content
+        full_notes = f"{summary_note}\n\n--- CSV OUTPUT ---\n{csv_content}"
+        
+        # Log to backend with full CSV content in notes
+        self.activity_logger.log_activity(len(all_contacts), notes=full_notes)
+        
+        # Save local summary (keeping it lightweight for readability)
+        self._save_activity_summary(len(all_contacts), summary_note)
+
+        logger.info(f"Extraction complete. Contacts Found Today: {len(all_contacts)}, Jobs Identified: {len(all_jobs)}.", extra={"step_name": "Extraction"})
+        print(f"\n>>> EXTRACTION COMPLETE <<<")
+        print(f"Daily Results: {out_path}")
+        print(f"Activity Log: {os.path.join(self.output_dir, 'activity_logs.csv')}\n")
 
     def _process_single_post(self, post):
         """
@@ -88,13 +129,34 @@ class DataExtractor:
                 # Rule-based Company Extraction
                 company = self.processor.extract_company_from_email(email)
                 
+                # Use existing post_url if available
+                post_url = post.get('post_url', '')
+                if not post_url:
+                    post_id = post.get('post_id', '')
+                    if post_id:
+                        if 'urn:li:activity:' in post_id:
+                            post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
+                        elif post_id.isdigit():
+                            post_url = f"https://www.linkedin.com/feed/update/urn:li:activity:{post_id}/"
+                        # Explicitly DO NOT construct URL if it's a hash or unknown format
+                
+                # Extract internal ID from profile URL (e.g. "john-doe" or "ACoAA...")
+                profile_url = post.get('linkedin_id', '') or post.get('profile_url', '')
+                internal_id = ""
+                if profile_url and '/in/' in profile_url:
+                    parts = profile_url.rstrip('/').split('/in/')
+                    if len(parts) > 1:
+                        internal_id = parts[1].split('?')[0] # Get the part after /in/ and before query
+                
                 contact = {
                     "full_name": name,
                     "email": email,
                     "phone": primary_phone,
+                    "author_linkedin_id": profile_url,      # Full Profile URL
+                    "linkedin_internal_id": internal_id,    # The handle/ID part
                     "company": company or "Unknown",
-                    "linkedin_id": post.get('linkedin_id', ''),
-                    "post_url": f"https://www.linkedin.com/feed/update/{post.get('post_id')}/",
+                    "linkedin_id": profile_url,             # Keeping for backward compatibility if needed
+                    "post_url": post_url,
                     "source_keyword": post.get('search_keyword', ''),
                     "extraction_date": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 }
@@ -104,15 +166,27 @@ class DataExtractor:
         is_job, job_details = self.processor.classify_job_post(post_text)
         
         if is_job:
+            # Re-calculate post_url for job_info as well
+            post_url = post.get('post_url', '')
+            if not post_url:
+                post_id = post.get('post_id', '')
+                if post_id:
+                    if 'urn:li:activity:' in post_id:
+                        post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
+                    elif post_id.isdigit():
+                        post_url = f"https://www.linkedin.com/feed/update/urn:li:activity:{post_id}/"
+                    # Explicitly DO NOT construct URL if it's a hash or unknown format
+
             job_info = {
                 "post_id": post.get('post_id'),
-                "post_url": f"https://www.linkedin.com/feed/update/{post.get('post_id')}/",
+                "post_url": post_url,
                 "author_name": post.get('author_name', 'Unknown'),
                 "linkedin_id": post.get('linkedin_id', ''),
                 "source_keyword": post.get('search_keyword', ''),
                 "extraction_date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 "job_score": job_details['score'],
                 "job_matches": "; ".join(job_details['matched_rules']),
+                "contract_type": self.processor.extract_contract_type(post_text),
                 # Include contact info if available, even if redundant
                 "contact_email": emails[0] if emails else "",
                 "contact_phone": primary_phone,
@@ -121,55 +195,74 @@ class DataExtractor:
 
         return contacts, job_info
 
-    def _save_contacts(self, contacts, out_dir):
-        """Save extracted contacts."""
-        if not contacts: return
 
-        # deduplicate by email
-        unique_contacts = {c['email']: c for c in contacts}.values()
-        
+    def _save_contacts(self, contacts, out_dir, filename="contacts_extracted"):
+        """Save extracted contacts for the current run."""
         # JSON
-        json_path = os.path.join(out_dir, "contacts_extracted.json")
+        json_path = os.path.join(out_dir, f"{filename}.json")
+        csv_path = os.path.join(out_dir, f"{filename}.csv")
+        
+        unique_contacts = list({c['email']: c for c in contacts}.values()) if contacts else []
+        
         with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(list(unique_contacts), f, indent=2, ensure_ascii=False)
+            json.dump(unique_contacts, f, indent=2, ensure_ascii=False)
             
         # CSV
-        csv_path = os.path.join(out_dir, "contacts_extracted.csv")
-        keys = ["full_name", "email", "phone", "company", "linkedin_id", "post_url", "source_keyword", "extraction_date"]
-        
+        keys = ["full_name", "email", "phone", "author_linkedin_id", "linkedin_internal_id", "company", "linkedin_id", "post_url", "source_keyword", "extraction_date"]
         with open(csv_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=keys)
             writer.writeheader()
-            writer.writerows(unique_contacts)
+            if unique_contacts:
+                writer.writerows(unique_contacts)
             
-        logger.info(f"Saved {len(unique_contacts)} unique contacts to {json_path}", extra={"step_name": "Extraction"})
+        if unique_contacts:
+            logger.info(f"Saved {len(unique_contacts)} unique contacts to {json_path}", extra={"step_name": "Extraction"})
 
-    def _save_jobs(self, jobs, out_dir):
-        """Save classified jobs."""
-        if not jobs: return
-
-        # deduplicate by post_id
-        unique_jobs = {j['post_id']: j for j in jobs}.values()
+    def _save_jobs(self, jobs, out_dir, filename="jobs"):
+        """Save classified jobs for the current run."""
+        json_path = os.path.join(out_dir, f"{filename}.json")
+        csv_path = os.path.join(out_dir, f"{filename}.csv")
+        
+        unique_jobs = list({j['post_id']: j for j in jobs}.values()) if jobs else []
         
         # JSON
-        json_path = os.path.join(out_dir, "jobs.json")
         with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(list(unique_jobs), f, indent=2, ensure_ascii=False)
+            json.dump(unique_jobs, f, indent=2, ensure_ascii=False)
             
         # CSV
-        csv_path = os.path.join(out_dir, "jobs.csv")
         keys = [
             "post_id", "post_url", "author_name", "linkedin_id", "source_keyword", 
-            "extraction_date", "job_score", "job_matches", "contact_email", "contact_phone", "post_text_preview"
+            "extraction_date", "job_score", "job_matches", "contract_type", "contact_email", "contact_phone", "post_text_preview"
         ]
         
         with open(csv_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=keys)
             writer.writeheader()
-            writer.writerows(unique_jobs)
+            if unique_jobs:
+                writer.writerows(unique_jobs)
             
-        logger.info(f"Saved {len(unique_jobs)} unique jobs to {json_path}", extra={"step_name": "Extraction"})
+        if unique_jobs:
+            logger.info(f"Saved {len(unique_jobs)} unique jobs to {json_path}", extra={"step_name": "Extraction"})
+
+    def _save_activity_summary(self, count, notes):
+        """Append session summary to activity_logs.csv."""
+        filepath = os.path.join(self.output_dir, 'activity_logs.csv')
+        file_exists = os.path.exists(filepath)
+        
+        try:
+            with open(filepath, 'a', newline='', encoding='utf-8') as f:
+                fieldnames = ['timestamp', 'contact_count', 'notes']
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow({
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'contact_count': count,
+                    'notes': notes
+                })
+        except Exception as e:
+            logger.error(f"Failed to save activity summary to CSV: {e}", extra={"step_name": "Extraction"})
 
 if __name__ == "__main__":
-    extractor = ContactExtractor()
+    extractor = DataExtractor()
     extractor.run()

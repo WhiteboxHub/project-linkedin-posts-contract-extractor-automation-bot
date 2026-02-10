@@ -132,23 +132,30 @@ class LinkedInBotComplete:
                 continue
             
             # Construct post URL
+            # Construct post URL - Only use VALID URNs or numeric IDs
+            # Do NOT use MD5 hashes or other strings as part of the URL path
             post_url = ""
-            if post_id and 'urn:li:activity:' in post_id:
-                post_url = f"{config.URLS['POST_BASE']}{post_id}/"
+            if post_id:
+                if 'urn:li:activity:' in post_id:
+                    post_url = f"{config.URLS['POST_BASE']}{post_id}/"
+                elif post_id.isdigit():
+                    post_url = f"{config.URLS['POST_BASE']}urn:li:activity:{post_id}/"
+                
+            # --- FALLBACK: If URL is empty (e.g. because ID was a hash), ask scraper to hunt for the real link ---
+            if not post_url: 
+                 extracted_url = self.scraper.extract_post_url(post)
+                 if extracted_url:
+                     post_url = extracted_url
+            
             post_data['post_url'] = post_url
             
             if not post_data.get('name'):
                  self.metrics.track_failure("Name Extraction Failed")
-                 # We still try to save what we have or skip? 
-                 # Current logic continues, but maybe we should count it as partial?
-                 # Let's continue for now.
-
-            # Initialize metadata with what we have from the post
             current_meta = {
                 'full_name': post_data.get('name', ''),
                 'email': post_data.get('email', ''),
                 'phone': post_data.get('phone', ''),
-                'linkedin_id': post_data.get('profile_url', ''), # Use profile URL as ID
+                'linkedin_id': post_data.get('profile_url', ''), 
                 'company_name': post_data.get('company', ''),
                 'location': post_data.get('location', ''),
                 'post_url': post_url,
@@ -158,12 +165,6 @@ class LinkedInBotComplete:
             
             is_extracted = False
             
-            # [DECOUPLED FLOW]
-            # We ONLY check for basic relevance (AI/Tech keywords).
-            # We do NOT check for email/phone here anymore.
-            # We save the raw post and move on.
-            
-            # Check relevance for full extraction
             is_relevant = post_data['is_relevant']
             
             if is_relevant:
@@ -202,7 +203,7 @@ class LinkedInBotComplete:
         """Run bot."""
         try:
             logger.info("LinkedIn Complete Data Extractor (Modularized) Started", extra={"step_name": "Startup"})
-            logger.info(f"Extracts: Name, Email, Phone, Company, Location. Output: {config.OUTPUT_FILE}", extra={"step_name": "Startup"})
+            logger.info("Extracts: Name, Email, Phone, Company, Location.", extra={"step_name": "Startup"})
             self.metrics.start_session()
             
             cand_id = getattr(self.activity_logger, 'selected_candidate_id', 0)
@@ -240,108 +241,21 @@ class LinkedInBotComplete:
                     logger.info(f"Sleeping {sleep_time:.1f}s before next keyword...", extra={"step_name": "Orchestrator"})
                     time.sleep(sleep_time)
             
-            # Perform bulk sync of extracting contacts to WBL Backend
-            if self.storage_manager.extracted_contacts_buffer:
-                logger.info(f"Bulk syncing {len(self.storage_manager.extracted_contacts_buffer)} contacts to WBL backend...", extra={"step_name": "Shutdown"})
-                success = self.activity_logger.bulk_save_vendor_contacts(
-                    self.storage_manager.extracted_contacts_buffer, 
-                    source_email=self.linkedin_email
-                )
-                if success:
-                    self.total_synced += len(self.storage_manager.extracted_contacts_buffer)
-            
-            logger.info("RUN COMPLETE", extra={"step_name": "Shutdown"})
+            # Extraction and Syncing is now handled offline by DataExtractor in post-processing
+            logger.info("Collection complete. Post-processing will handle extraction and syncing.", extra={"step_name": "Shutdown"})
             logger.info(f"Metrics: {self.posts_saved} posts saved, {self.total_saved} contacts extracted", extra={"step_name": "Shutdown"})
-            logger.info(f"Storage: {self.storage_manager.posts_dir}/, {config.OUTPUT_FILE}", extra={"step_name": "Shutdown"})
+            logger.info(f"Storage: {self.storage_manager.posts_dir}/", extra={"step_name": "Shutdown"})
 
-            # Log activity with contact details in notes
-            logger.info("Logging activity to WBL backend...", extra={"step_name": "Shutdown"})
+            # Metrics summary logged to console only - DataExtractor will handle backend sync
+            logger.info(f"Scan complete. {self.posts_saved} posts cached. Finalizing extraction...", extra={"step_name": "Shutdown"})
             
-            notes = f"LinkedIn extraction: {self.posts_saved} posts saved, {self.total_saved} contacts extracted.\n\n"
-            
-            if os.path.exists(config.OUTPUT_FILE) and self.total_saved > 0:
-                try:
-                    import csv
-                    contacts_summary = []
-                    with open(config.OUTPUT_FILE, 'r', encoding='utf-8') as f:
-                        reader = csv.DictReader(f)
-                        rows = list(reader)
-                        latest_rows = rows[-self.total_saved:] if len(rows) >= self.total_saved else rows
-                        
-                        for row in latest_rows:
-                            item_details = [
-                                f"Name: {row.get('full_name', 'N/A')}",
-                                f"Email: {row.get('email', 'N/A')}",
-                                f"Phone: {row.get('phone', 'N/A')}",
-                                f"LinkedIn ID: {row.get('linkedin_id', 'N/A')}",
-                                f"Company: {row.get('company_name', 'N/A')}",
-                                f"Location: {row.get('location', 'N/A')}",
-                                f"Post URL: {row.get('post_url', 'N/A')}",
-                                f"Date: {row.get('extraction_date', 'N/A')}",
-                                f"Keyword: {row.get('search_keyword', 'N/A')}"
-                            ]
-                            contacts_summary.append(" | ".join(item_details))
-                    
-                    if contacts_summary:
-                        notes += "Extracted Contacts details:\n" + "\n".join(contacts_summary)
-                except Exception as read_err:
-                    logger.warning(f"Could not read CSV for notes: {read_err}", extra={"step_name": "Shutdown"})
-                    notes += f"Summary: {self.total_saved} contacts saved to {config.OUTPUT_FILE}"
-
-            self.activity_logger.log_activity(
-                activity_count=self.total_saved,
-                notes=notes
-            )
-        
         except KeyboardInterrupt:
-            logger.warning(f"STOPPED by user. Saved: {self.total_saved}", extra={"step_name": "Shutdown"})
-            
-            # Perform bulk sync for contacts collected before interruption
-            if self.storage_manager.extracted_contacts_buffer:
-                logger.info(f"Syncing {len(self.storage_manager.extracted_contacts_buffer)} contacts to backend before exit...", extra={"step_name": "Shutdown"})
-                success = self.activity_logger.bulk_save_vendor_contacts(
-                    self.storage_manager.extracted_contacts_buffer, 
-                    source_email=self.linkedin_email
-                )
-                if success:
-                    self.total_synced += len(self.storage_manager.extracted_contacts_buffer)
-            
-            if self.total_saved > 0:
-                logger.info("Logging partial activity...", extra={"step_name": "Shutdown"})
-                # Try to build notes for partial run too
-                notes = f"LinkedIn extraction stopped by user. {self.total_saved} contacts extracted.\n\n"
-                if os.path.exists(config.OUTPUT_FILE):
-                    try:
-                        import csv
-                        contacts_summary = []
-                        with open(config.OUTPUT_FILE, 'r', encoding='utf-8') as f:
-                            reader = csv.DictReader(f)
-                            rows = list(reader)
-                            latest_rows = rows[-self.total_saved:] if len(rows) >= self.total_saved else rows
-                            for row in latest_rows:
-                                item_details = [
-                                    f"Name: {row.get('full_name', 'N/A')}",
-                                    f"Email: {row.get('email', 'N/A')}",
-                                    f"Phone: {row.get('phone', 'N/A')}",
-                                    f"Post URL: {row.get('post_url', 'N/A')}"
-                                ]
-                                contacts_summary.append(" | ".join(item_details))
-                        if contacts_summary:
-                            notes += "Partial Contacts:\n" + "\n".join(contacts_summary)
-                    except:
-                        pass
-                        
-                if config.DRY_RUN:
-                    logger.info("Dry Run skipping activity log sync to WBL Backend.", extra={"step_name": "Shutdown"})
-                    return
-
-                self.activity_logger.log_activity(
-                    activity_count=self.total_saved,
-                    notes=notes
-                )
-                
+            logger.warning(f"STOPPED by user. Cached: {self.posts_saved}", extra={"step_name": "Shutdown"})
         except Exception as e:
             logger.critical(f"FATAL ERROR: {e}", extra={"step_name": "Orchestrator"}, exc_info=True)
+            if self.total_saved > 0:
+                notes = f"CRASH: LinkedIn extraction failed: {str(e)}. {self.total_saved} found before crash.\n"
+                self.activity_logger.log_activity(self.total_saved, notes=notes)
         
         finally:
             self.browser_manager.quit()
@@ -356,15 +270,6 @@ class LinkedInBotComplete:
             # Print detailed metrics summary
             self.metrics.end_session()
             self.metrics.print_summary()
-            
-            # [NEW] Run Post-Processing Data Extraction
-            try:
-                from modules.data_extractor import DataExtractor
-                logger.info("Browser closed. Starting offline data extraction...", extra={"step_name": "Shutdown"})
-                extractor = DataExtractor()
-                extractor.run()
-            except Exception as e:
-                logger.error(f"Post-processing failed: {e}", extra={"step_name": "Shutdown"})
 
 
 if __name__ == "__main__":

@@ -113,27 +113,8 @@ class StorageManager:
         self.processed_posts.add(post_id)
 
     def load_processed_profiles(self):
-        """Load already processed profile data from output CSV for reuse."""
-        try:
-            if os.path.exists(config.OUTPUT_FILE):
-                with open(config.OUTPUT_FILE, 'r', encoding='utf-8') as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        url = row.get('linkedin_id')
-                        if url:
-                            url = url.strip().rstrip('/')
-                            # Store full data for reuse
-                            self.profile_cache[url] = {
-                                'full_name': row.get('full_name', ''),
-                                'email': row.get('email', ''),
-                                'phone': row.get('phone', ''),
-                                'company_name': row.get('company_name', ''),
-                                'location': row.get('location', '')
-                            }
-                            self.processed_profiles.add(url)
-                logger.info(f"Loaded {len(self.processed_profiles)} profiles into cache from {config.OUTPUT_FILE}", extra={"step_name": "Storage Init"})
-        except Exception as e:
-            logger.error(f"Could not load profiles for cache: {e}", extra={"step_name": "Storage Init"}, exc_info=True)
+        """Profile caching is now handled via DuckDB or skipped if not required."""
+        pass
 
     def save_full_post(self, text, post_id, keyword, metadata=None):
         """Save the actual post content to JSON file (text only, no images)."""
@@ -161,6 +142,7 @@ class StorageManager:
             # Create new post entry (text only, no images or other media)
             new_post = {
                 "post_id": post_id,
+                "post_url": metadata.get('post_url', '') if metadata else '',
                 "author_name": author_name,
                 "linkedin_id": linkedin_id,
                 "post_text": post_lines,  # Store as array of lines

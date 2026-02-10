@@ -59,7 +59,8 @@ class JobActivityLogger:
             "full_name": (data.get('full_name') or 'Unknown')[:250],
             "email": data.get('email'),
             "phone": data.get('phone'),
-            "linkedin_id": linkedin_id,
+            "linkedin_id": data.get('linkedin_id') or linkedin_id, 
+            "linkedin_internal_id": data.get('linkedin_internal_id') or linkedin_id, 
             "company_name": (data.get('company_name') or '')[:250],
             "location": (data.get('location') or '')[:250],
             "source_email": final_source_email,
@@ -134,11 +135,22 @@ class JobActivityLogger:
             company_name = (data.get('company_name') or '')[:250]
             location = (data.get('location') or '')[:250]
             
+            
+            internal_id = data.get('linkedin_internal_id')
+            if not internal_id and data.get('linkedin_id'):
+                 internal_id = self._extract_linkedin_id(data.get('linkedin_id'))
+
+            # 2. Public ID (Full URL) - Prefer author_linkedin_id or raw linkedin_id
+            public_id = data.get('author_linkedin_id') or data.get('linkedin_id')
+            
+            
+            
             contacts_payload.append({
                 "full_name": full_name,
                 "email": email,
                 "phone": data.get('phone'),
-                "linkedin_id": linkedin_id,
+                "linkedin_id": public_id,           
+                "linkedin_internal_id": internal_id, 
                 "company_name": company_name,
                 "location": location,
                 "source_email": final_source_email,

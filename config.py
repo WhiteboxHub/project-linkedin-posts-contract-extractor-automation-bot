@@ -28,10 +28,7 @@ SEARCH_FILTERS = {
     },
     "SORT_BY": {
         "date_posted": "%5B%22date_posted%22%5D",
-        "relevance": "relevance" # Usually empty or different, but keeping strict param structure if needed. 
-        # Actually, looking at scraper.py, the default sort was just hardcoded. 
-        # Let's verify the "relevance" param or leave it as a placeholder if not strictly used in URL same way.
-        # But for now, putting the encoded value for date_posted.
+        "relevance": "relevance" 
     }
 }
 
@@ -41,27 +38,6 @@ DATE_FILTER = os.getenv('DATE_FILTER', 'past-24h') # 'past-24h', 'past-week', 'p
 SORT_BY = 'date_posted' # Forced to date_posted as per user request
 MAX_CONTACTS_PER_RUN = int(os.getenv('MAX_CONTACTS_PER_RUN', '100'))
 DRY_RUN = os.getenv('DRY_RUN', 'False').lower() == 'true'
-
-# Output Settings
-OUTPUT_FILE = os.getenv('OUTPUT_FILE', 'output.csv')
-
-# AI/ML Related Keywords to filter posts
-AI_KEYWORDS = [
-    'ai', 'artificial intelligence', 'machine learning', 'ml', 'mlops',
-    'llm', 'large language model', 'rag', 'gen ai', 'generative ai', 'agentic',
-    'deep learning', 'neural network', 'nlp', 'computer vision',
-    'developer','data engineer','data scientist', 'ml engineer', 'ai engineer', 'pytorch', 'tensorflow','python','Fine tuning'
-]
-
-# Job-related keywords (must have at least one)
-JOB_KEYWORDS = [
-    'hiring', 'job', 'position', 'opportunity', 'opening',
-    'w2', 'c2c', 'corp-to-corp', '1099', 'bench', 'full time', 'full-time', 
-    'contract', 'immediate', 'looking for', 'seeking', 'recruiting', 
-    'join our team', 'apply', 'careers', 'employment'
-]
-
-
 
 # Chrome Profile Settings for persistent login
 # Path to your Chrome User Data (e.g., C:/Users/YourName/AppData/Local/Google/Chrome/User Data)

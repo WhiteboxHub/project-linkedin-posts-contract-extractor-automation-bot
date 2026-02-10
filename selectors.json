@@ -1,0 +1,116 @@
+{
+    "login": {
+        "username": [
+            "username",
+            "session_key"
+        ],
+        "password": [
+            "password",
+            "session_password"
+        ]
+    },
+    "search": {
+        "global_input": [
+            "//input[@data-view-name='search-global-typeahead-input']",
+            "//input[@data-testid='typeahead-input']",
+            "//input[contains(@class, 'search-global-typeahead__input')]",
+            "//input[@placeholder='Search']"
+        ],
+        "posts_tab_button": "//button[contains(., 'Posts')]",
+        "sort_filter": {
+            "dropdown_button": "//button[contains(@aria-label, 'Sort by') or contains(., 'Sort by')]",
+            "option_latest": "//button[contains(., 'Recent') or contains(., 'Latest')]",
+            "option_relevance": "//button[contains(., 'Top') or contains(., 'Relevance')]",
+            "show_results_button": "//button[contains(@aria-label, 'Show results')]"
+        }
+    },
+    "post": {
+        "containers": [
+            "//div[contains(@class, 'feed-shared-update-v2')]",
+            "//div[@data-view-name='feed-full-update']",
+            "//div[contains(@class, 'reusable-search__result-container')]",
+            "//li[contains(@class, 'reusable-search__result-container')]",
+            "//div[contains(@id, 'ember') and contains(@class, 'search-results__list-item')]",
+            "//*[contains(@data-view-name, 'feed-commentary')]/ancestor::div[contains(@class, 'update-v2')]",
+            "//*[contains(@data-testid, 'expandable-text-box')]/ancestor::div[contains(@class, 'update-v2')]",
+            "//div[contains(@class, 'feed-shared-update-v3')]",
+            "//div[contains(@class, 'card-container')]",
+            "//div[contains(@data-id, 'urn:li:activity')]"
+        ],
+        "extract_id": {
+            "urn_component": ".//div[@data-urn]",
+            "time_link": ".//a[contains(@href, 'update')]",
+            "copy_link_text": ".//span[contains(text(), 'Copy link to post')]"
+        },
+        "see_more_button": [
+            ".//button[@data-testid='expandable-text-button']",
+            ".//button[contains(@class, 'see-more')]",
+            ".//button[contains(., 'more')]",
+            ".//span[contains(., '...more')]",
+            ".//button[contains(@aria-label, 'see more')]",
+            ".//button[contains(@class, 'feed-shared-inline-show-more-text')]"
+        ],
+        "load_more_results": [
+            "//button[.//span[contains(text(), 'Load more')]]",
+            "//button[contains(., 'Load more')]",
+            "//button[contains(., 'Show more results')]",
+            "//button[contains(@aria-label, 'Show more outcomes')]",
+            "//button[contains(@class, 'infinite-scroll')]",
+            "//button[contains(@class, 'search-results__load-more-button')]"
+        ],
+        "author_name": [
+            ".//span[@aria-hidden='true']",
+            ".//span[contains(@class, 'update-components-actor__name')]",
+            ".//span[contains(@class, 'entity-result__title-text')]",
+            ".//div[contains(@class, 't-black')]//span",
+            ".//div[contains(@class, 'actor')]//span",
+            ".//p[contains(@class, 'actor')]//span",
+            ".//a[contains(@href, '/in/')]//span"
+        ],
+        "author_headline": [
+            ".//span[contains(@class, 'update-components-actor__description')]",
+            ".//div[contains(@class, 'entity-result__primary-subtitle')]",
+            ".//p[contains(@class, 't-12')]",
+            ".//div[contains(@class, 'update-components-text-view')]",
+            ".//p[contains(@class, 'feed-shared-actor__description')]"
+        ],
+        "content_text": [
+            ".//p[@data-view-name='feed-commentary']//span[@data-testid='expandable-text-box']",
+            ".//div[@data-view-name='feed-commentary']//span[@data-testid='expandable-text-box']",
+            ".//p[@data-view-name='feed-commentary']",
+            ".//div[@data-view-name='feed-commentary']",
+            ".//span[@data-testid='expandable-text-box']",
+            ".//div[contains(@class, 'update-components-text')]",
+            ".//span[contains(@class, 'break-words')]",
+            ".//div[contains(@class, 'feed-shared-update-v2__description')]",
+            ".//div[contains(@class, 'feed-shared-update-v2__commentary')]",
+            ".//div[@data-view-name='feed-full-update']//span"
+        ],
+        "profile_link": [
+            ".//a[contains(@href, '/in/')]",
+            ".//a[contains(@class, 'update-components-actor__container-link')]",
+            ".//a[contains(@class, 'msg-thread__link-to-profile')]",
+            ".//a[contains(@class, 'app-aware-link') and contains(@href, '/in/')]",
+            ".//a[contains(@data-test-app-aware-link, '') and contains(@href, '/in/')]"
+        ]
+    },
+    "profile": {
+        "full_name": [
+            "//h1[contains(@class, 't-24')]",
+            "//h1"
+        ],
+        "location": [
+            "//span[contains(@class, 'text-body-small') and contains(., ',')]",
+            "//div[contains(@class, 'mt2')]//span[contains(text(), ',')]"
+        ],
+        "company": [
+            "//div[contains(@class, 'inline-show-more-text')]//div[contains(@class, 'inline-show-more-text--is-collapsed')]",
+            "//section[contains(@id, 'experience')]//div[contains(@class, 'pvs-entity__path-node')]//span[contains(@aria-hidden, 'true')]",
+            "//section[contains(@id, 'experience')]//span[contains(@class, 't-bold')]",
+            "//div[@id='experience']//span[@aria-hidden='true']"
+        ],
+        "contact_info_link": "//a[contains(@href, 'overlay/contact-info')]",
+        "email_mailto": "//a[contains(@href, 'mailto:')]",
+        "phone_section": "//section[contains(@class, 'pv-contact-info')]"
+    }
+}

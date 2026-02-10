@@ -17,6 +17,7 @@ class BrowserManager:
     def __init__(self, chrome_profile=None):
         self.driver = None
         self.chrome_profile = chrome_profile or config.CHROME_PROFILE_NAME
+        self.use_uc = getattr(config, 'USE_UC', True)
         
     def is_chrome_running_with_profile(self):
         """Check if Chrome is already running with the configured profile."""
@@ -32,9 +33,11 @@ class BrowserManager:
                     if name and 'chrome' in name.lower():
                         cmdline = proc.info.get('cmdline')
                         if cmdline:
-                            # Looking for --user-data-dir in the command line
-                            if any(target_path in os.path.normpath(arg).lower() for arg in cmdline):
-                                return True
+                            for arg in cmdline:
+                                if arg.lower().startswith('--user-data-dir='):
+                                    profile_in_arg = os.path.normpath(arg.split('=', 1)[1]).lower()
+                                    if target_path == profile_in_arg:
+                                        return True
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     continue
         except Exception as e:
@@ -54,7 +57,9 @@ class BrowserManager:
         # Load existing Chrome profile if configured
         if config.CHROME_PROFILE_PATH:
             if self.is_chrome_running_with_profile():
-                logger.error("Chrome is already running with the selected profile.", extra={"step_name": "BrowserManager"})
+                logger.error("ALREADY RUNNING: Chrome is already using the selected profile directory. "
+                           "Please CLOSE ALL Chrome windows before running this bot, or configure a dedicated profile in .env (e.g., C:/WBL-bots/bot_profile).", 
+                           extra={"step_name": "BrowserManager"})
                 import sys
                 sys.exit(1)
 
@@ -62,35 +67,43 @@ class BrowserManager:
             chrome_options.add_argument(f"--user-data-dir={config.CHROME_PROFILE_PATH}")
             chrome_options.add_argument(f"--profile-directory={self.chrome_profile}")
         
-        # Proxy Support
+        
         # Proxy Support
         proxy_url = getattr(config, 'PROXY_URL', None)
         if proxy_url:
             logger.info(f"Using Proxy: {proxy_url}", extra={"step_name": "BrowserManager"})
             chrome_options.add_argument(f'--proxy-server={proxy_url}')
         
-        # undetected_chromedriver handles its own driver management
+        # Try initializing driver
         try:
-            # Force specific version if provided in config
-            version = int(config.CHROME_VERSION) if config.CHROME_VERSION else None
-            
-            # use_subprocess=True helps with "cannot connect to chrome" errors on Windows
-            self.driver = uc.Chrome(options=chrome_options, version_main=version, use_subprocess=True)
+            if self.use_uc:
+                # Force specific version if provided in config
+                version = int(config.CHROME_VERSION) if config.CHROME_VERSION else None
+                
+                # use_subprocess=True helps with "cannot connect to chrome" errors on Windows
+                self.driver = uc.Chrome(options=chrome_options, version_main=version, use_subprocess=True)
+            else:
+                raise Exception("USE_UC is False, skipping to standard Selenium...")
+                
         except Exception as e:
-            logger.warning(f"Undetected ChromeDriver failed: {e}. Falling back to standard Selenium ChromeDriver...", extra={"step_name": "BrowserManager"})
+            if self.use_uc:
+                logger.warning(f"Undetected ChromeDriver failed: {e}. Falling back to standard Selenium ChromeDriver...", extra={"step_name": "BrowserManager"})
+            
             try:
                 import selenium.webdriver as webdriver
-                # Standard Selenium fallback
-                # We need to strip 'undetected' specific options if any, but most are compatible.
-                # However, we must NOT use version_main or use_subprocess for standard driver
                 from selenium.webdriver.chrome.service import Service as ChromeService
                 from webdriver_manager.chrome import ChromeDriverManager
                 
+                # Ensure the options are compatible (convert uc options back to standard if needed)
+                standard_options = webdriver.ChromeOptions()
+                for arg in chrome_options.arguments:
+                    standard_options.add_argument(arg)
+                
                 service = ChromeService(ChromeDriverManager().install())
-                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                self.driver = webdriver.Chrome(service=service, options=standard_options)
             except Exception as fallback_e:
                  logger.critical(f"Standard Selenium fallback also failed: {fallback_e}", extra={"step_name": "BrowserManager"})
-                 raise e 
+                 raise e if self.use_uc else fallback_e
 
         try:
             # Apply selenium-stealth to further mask automation signals

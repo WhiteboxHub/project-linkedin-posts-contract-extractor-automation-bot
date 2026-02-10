@@ -116,28 +116,49 @@ class ScraperModule:
                 
                 for xpath in selectors:
                     try:
-                        elem = post.find_element(By.XPATH, xpath)
-                        for attr in ['componentkey', 'data-urn', 'data-activity-urn']:
-                            val = self.browser_manager.safe_get_attribute(elem, attr)
-                            if val: return val
+                        elems = post.find_elements(By.XPATH, xpath)
+                        for elem in elems:
+                            for attr in ['componentkey', 'data-urn', 'data-activity-urn', 'data-id']:
+                                val = self.browser_manager.safe_get_attribute(elem, attr)
+                                if val: return val
                     except: continue
             except: pass
 
-            # 2. Check for the 'time' link which often contains the URN
+            # 2. Check for the 'time' link or any link containing 'activity' or 'update'
             try:
                 selectors = config.SELECTORS['post']['extract_id']['time_link']
                 if isinstance(selectors, str): selectors = [selectors]
                 
                 for xpath in selectors:
                     try:
-                        time_links = post.find_elements(By.XPATH, xpath)
-                        for link in time_links:
+                        links = post.find_elements(By.XPATH, ".//a") # Check ALL links in post
+                        for link in links:
                             href = self.browser_manager.safe_get_attribute(link, 'href')
+                            if not href: continue
+                            
+                            # Standard Activity URN
                             if 'urn:li:activity:' in href:
                                 match = re.search(r'urn:li:activity:(\d+)', href)
                                 if match: return f"urn:li:activity:{match.group(1)}"
-                            elif '/feed/update/' in href: # Fallback for non-urn format if any
-                                return href.split('/')[-2]
+                            
+                            # Feed Update URL format
+                            if '/feed/update/urn:li:activity:' in href:
+                                match = re.search(r'urn:li:activity:(\d+)', href)
+                                if match: return f"urn:li:activity:{match.group(1)}"
+                                
+                            if '/feed/update/activity:' in href:
+                                match = re.search(r'activity:(\d+)', href)
+                                if match: return f"urn:li:activity:{match.group(1)}"
+                                
+                            if '/feed/update/' in href:
+                                parts = [p for p in href.split('/') if p]
+                                for i, p in enumerate(parts):
+                                    if p == 'update' and i + 1 < len(parts):
+                                        potential_id = parts[i+1]
+                                        if potential_id.isdigit():
+                                            return f"urn:li:activity:{potential_id}"
+                                        elif len(potential_id) > 15: # Might be the hash format we saw
+                                            return potential_id
                     except: continue
             except: pass
 
@@ -164,6 +185,25 @@ class ScraperModule:
         except:
             pass
         return None
+
+    def extract_post_url(self, post):
+        """
+        Attempt to extract the direct URL to the post from its child links.
+        Useful if we can't determine a clean URN but can find a link.
+        """
+        try:
+            # 1. Search for standard update links
+            links = post.find_elements(By.TAG_NAME, "a")
+            for link in links:
+                href = link.get_attribute("href")
+                if href and ("/feed/update/" in href or "/activity/" in href or "/posts/" in href):
+                    # Basic cleanup
+                    if '?' in href:
+                        href = href.split('?')[0]
+                    return href
+        except:
+            pass
+        return ""
 
     # [REMOVED] old clean_post_text - using modules.utils.clean_post_content instead
 
@@ -284,59 +324,81 @@ class ScraperModule:
         logger.info("Scrolling to load all available posts...", extra={"step_name": "Collection"})
         
         last_height = self.driver.execute_script("return document.body.scrollHeight")
+        last_count = len(self._find_post_elements())
         no_growth_count = 0
         max_scrolls = 100 # Aggressive limit to get "all" posts
         
         for i in range(1, max_scrolls + 1):
-            # 1. Scroll Logic
-            scroll_by = 2000
-            self.browser_manager.human_scroll(limit_range=(scroll_by-200, scroll_by+200))
-            time.sleep(random.uniform(2.5, 4.0)) # Wait for network load
+            # 1. Scroll Logic - Mix of smooth and jump
+            if i % 4 == 0:
+                # Direct jump to push loading
+                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            else:
+                scroll_by = random.randint(1500, 2000)
+                self.browser_manager.human_scroll(limit_range=(scroll_by-200, scroll_by+200))
             
+            time.sleep(random.uniform(3.0, 5.0)) # Increased wait
+            
+            # 1b. Scroll to last element to trigger lazy loading
+            try:
+                current_posts = self._find_post_elements()
+                if current_posts:
+                    last_p = current_posts[-1]
+                    self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", last_p)
+                    time.sleep(2.0)
+            except: pass
+
             # 2. Check for "Load More" / "Show more results" buttons
-            # We check this frequently to ensure we don't get stuck
             try:
                 load_more_selectors = config.SELECTORS['post']['load_more_results']
                 if isinstance(load_more_selectors, str): load_more_selectors = [load_more_selectors]
                 
                 clicked_load = False
                 for selector in load_more_selectors:
-                    if self.browser_manager.wait_click(selector, timeout=2, retries=1):
-                        logger.info(f"Clicked 'Load More' to fetch more results...", extra={"step_name": "Collection"})
+                    # Increased timeout to 3s
+                    if self.browser_manager.wait_click(selector, timeout=3, retries=1):
+                        logger.info(f"Clicked 'Load More' (Scroll {i})...", extra={"step_name": "Collection"})
                         clicked_load = True
-                        no_growth_count = 0 # Reset stagnation on successful click
-                        time.sleep(5) # Allow time for new batch to load
+                        no_growth_count = 0 
+                        time.sleep(6) 
                         break
                 
                 if not clicked_load:
-                    # Fallback generic button text check if specific selectors fail
                     try:
+                        # More inclusive text matching
                         btns = self.driver.find_elements(By.TAG_NAME, "button")
                         for btn in btns:
-                            if btn.is_displayed() and "show more results" in btn.text.lower():
+                            t = btn.text.lower()
+                            if btn.is_displayed() and ("results" in t or "more" in t) and ("show" in t or "see" in t):
                                 self.driver.execute_script("arguments[0].click();", btn)
-                                logger.info("Clicked generic 'Show more results' button", extra={"step_name": "Collection"})
+                                logger.info(f"Clicked generic results button (Scroll {i})", extra={"step_name": "Collection"})
                                 no_growth_count = 0
-                                time.sleep(5)
+                                time.sleep(6)
                                 break
                     except: pass
             except: pass
 
             # 3. Growth Check
             current_height = self.driver.execute_script("return document.body.scrollHeight")
+            current_count = len(self._find_post_elements())
             
-            if current_height > last_height:
-                logger.info(f"Scroll {i}/{max_scrolls}: Page height grew ({last_height} -> {current_height})", extra={"step_name": "Collection"})
+            if current_height > last_height or current_count > last_count:
+                logger.info(f"Scroll {i}: Grew (C:{current_count})", extra={"step_name": "Collection"})
                 last_height = current_height
+                last_count = current_count
                 no_growth_count = 0
             else:
                 no_growth_count += 1
-                if no_growth_count % 2 == 0:
-                    logger.debug(f"Scroll {i}/{max_scrolls}: No growth ({no_growth_count} scrolls)...", extra={"step_name": "Collection"})
+                if no_growth_count >= 4:
+                     # Force a small upward scroll then down to trigger state change
+                     self.driver.execute_script("window.scrollBy(0, -500);")
+                     time.sleep(1)
+                     self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                logger.debug(f"Scroll {i}: Stagnant ({no_growth_count}/10)")
 
             # 4. Exit Conditions
-            if no_growth_count >= 5:
-                logger.info("Stop: No page growth detected for 5 consecutive scrolls. Assuming end of results.", extra={"step_name": "Collection"})
+            if no_growth_count >= 10: # Extra patient
+                logger.info("Stop: No page growth detected after 10 attempts.", extra={"step_name": "Collection"})
                 break
         
         # 5. Final Collection
