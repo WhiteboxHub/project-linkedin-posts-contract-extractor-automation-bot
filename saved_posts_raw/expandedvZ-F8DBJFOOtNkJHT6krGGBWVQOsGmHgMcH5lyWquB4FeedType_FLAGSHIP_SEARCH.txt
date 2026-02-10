@@ -1,0 +1,9 @@
+Machine Learning is no longer just about building models its about building impact.
+Over the years, Ive seen ML evolve from experimentation to production-grade systems that drive real business outcomes:
+ Turning raw data into actionable insights
+ Deploying scalable ML pipelines in cloud environments
+ Monitoring, retraining, and governing models in production
+ Blending traditional ML with Generative AI and agentic workflows
+The real challenge isnt choosing the algorithm its designing reliable, explainable, and scalable ML systems that teams can trust.
+Excited to continue working on ML solutions that bridge data, engineering, and business value 
+#MachineLearning #ArtificialIntelligence #DataScience #MLOps #AIEngineering #TechCareers #C2C

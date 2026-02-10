@@ -1,0 +1,88 @@
+NVIDIA + ARM Architecture 
+
+1. Why NVIDIA Uses ARM
+ 
+High performance per watt compared to traditional x86 CPUs.
+ 
+Better power efficiency for data centers, edge devices, and automotive platforms.
+ 
+Scalable architecture from small embedded devices to large AI servers.
+ 
+Custom CPU design capability using ARM architecture licenses.
+2. Major NVIDIA ARM-Based Platforms
+ 
+Jetson: Edge AI, robotics, and smart camera platforms using ARM CPUs with NVIDIA GPUs.
+ 
+DRIVE: Automotive compute platforms for ADAS and autonomous driving.
+ 
+Grace CPU: ARM-based data center processor designed for AI and HPC workloads.
+ 
+Grace Hopper Superchip: Combines Grace ARM CPU with Hopper GPU using NVLink-C2C.
+3. ARM CPU + NVIDIA GPU Concept
+ 
+ARM CPU runs the operating system and manages system tasks.
+ 
+CPU prepares data and launches GPU workloads.
+ 
+NVIDIA GPU performs parallel processing for AI, graphics, and HPC.
+ 
+Results are returned to CPU for further processing or output.
+4. System Software Stack
+ 
+Applications: AI, robotics, simulation, or graphics workloads.
+ 
+Frameworks: PyTorch, TensorFlow, ROS, or other libraries.
+ 
+Acceleration layer: CUDA, TensorRT, cuDNN.
+ 
+Operating system: Linux or QNX.
+ 
+Kernel and drivers: GPU, display, camera, storage, networking.
+ 
+BSP: Bootloader, device tree, and hardware-specific drivers.
+ 
+Hardware: ARM CPU and NVIDIA GPU.
+5. BSP (Board Support Package)
+ 
+Bootloader initializes hardware and loads the kernel.
+ 
+Linux kernel provides OS functionality.
+ 
+Device drivers control GPU, display, camera, and other peripherals.
+ 
+Device tree describes the hardware configuration.
+6. Typical ARM Boot Process
+ 
+Power on and CPU reset.
+ 
+Boot ROM executes and loads first-stage bootloader.
+ 
+Bootloader initializes memory and hardware.
+ 
+Kernel is loaded into memory.
+ 
+Operating system starts.
+ 
+User applications begin execution.
+7. Publicly Available Learning Areas
+ 
+ARM architecture basics (Cortex-A, ARMv8, ARMv9).
+ 
+Jetson platform development and JetPack SDK.
+ 
+CUDA programming and GPU acceleration.
+ 
+Linux kernel on ARM systems.
+ 
+BSP and device tree fundamentals.
+8. Information Typically Under NDA
+ 
+Detailed GPU microarchitecture internals.
+ 
+Full Grace CPU internal design.
+ 
+OEM-specific BSP customizations.
+ 
+Internal validation and ools.
+ 
+Silicon bring-up procedures.

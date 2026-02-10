@@ -4,60 +4,244 @@ import config
 class ProcessorModule:
     @staticmethod
     def extract_email(text):
+        """
+        Extract ALL valid-looking emails using a broad regex.
+        No more invalid_pattern filtering based on domain names (as requested).
+        """
         if not text:
             return None
             
-        patterns = [
-            r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
-            r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
-        ]
+        # Broad pattern to capture almost any email
+        # We still exclude image extensions to avoid false positives like 'image.png'
+        email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
         
-        # Invalid email patterns to exclude (mostly media extensions or placeholders)
-        invalid_patterns = [
-            r'\.png', r'\.jpg', r'\.jpeg', r'\.gif', r'\.svg',
-            r'@2x\.', r'entity-circle', r'placeholder',
-            r'example\.com', r'test\.com', r'gmail\.com', r'yahoo\.com', r'hotmail\.com', r'outlook\.com', r'aol\.com', r'icloud\.com', r'protonmail\.com', r'mail\.com', r'yopmail\.com',
-        ]
+        image_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'}
         
-        for pattern in patterns:
-            emails = re.findall(pattern, text, re.IGNORECASE)
-            for email in emails:
-                if '@' in email and '.' in email.split('@')[1]:
-                    is_invalid = any(re.search(inv, email, re.IGNORECASE) for inv in invalid_patterns)
-                    
-                    if config.LINKEDIN_EMAIL and email.lower().strip() == config.LINKEDIN_EMAIL.lower().strip():
-                        is_invalid = True
-                        
-                    if not is_invalid:
-                        return email
+        emails = re.findall(email_pattern, text)
+        valid_emails = []
         
-        return None
+        for email in emails:
+            # Basic sanity check: length and structure
+            if len(email) < 5 or len(email) > 100:
+                continue
+            
+            # Filter out image filenames that look like emails
+            is_image = False
+            for ext in image_extensions:
+                if email.lower().endswith(ext):
+                    is_image = True
+                    break
+            
+            if is_image:
+                continue
+                
+            # Filter out common personal email domains
+            personal_domains = {'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'aol.com', 'protonmail.com'}
+            is_personal = False
+            for domain in personal_domains:
+                if email.lower().endswith(domain):
+                    is_personal = True
+                    break
+            
+            if is_personal:
+                continue
+                
+            # Filter out own email if defined
+            if config.LINKEDIN_EMAIL and email.lower().strip() == config.LINKEDIN_EMAIL.lower().strip():
+                continue
+                
+            valid_emails.append(email)
+            
+        # Return unique list
+        return list(set(valid_emails)) if valid_emails else None
     
     @staticmethod
     def extract_phone(text):
         if not text:
             return None
         patterns = [
-            r'\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',
-            r'\(\d{3}\)\s?\d{3}[-.\s]?\d{4}',
-            r'\d{3}[-.\s]?\d{3}[-.\s]?\d{4}',
+            r'\b\+?\d{1,3}[-.\s]\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b', 
+            r'\b\(\d{3}\)\s?\d{3}[-.\s]?\d{4}\b',
+            r'\b\d{10}\b', 
         ]
+        matches = []
         for pattern in patterns:
-            phones = re.findall(pattern, text)
-            if phones:
-                return phones[0]
-        return None
+            found = re.findall(pattern, text)
+            matches.extend(found)
+        return list(set(matches)) if matches else None # Return list of all found phones
+
+    @staticmethod
+    def extract_name_from_email(email):
+        """
+        Rule: s.smith@... -> S Smith
+        john.doe@... -> John Doe
+        """
+        if not email: return None
+        try:
+            local_part = email.split('@')[0]
+            # Replace dots, underscores, numbers with spaces
+            clean_name = re.sub(r'[._0-9]+', ' ', local_part).strip()
+            # Title case
+            return clean_name.title()
+        except: return None
+
+    @staticmethod
+    def extract_company_from_email(email):
+        """
+        Rule: ...@google.com -> Google
+        """
+        if not email: return None
+        try:
+            domain = email.split('@')[1]
+            if not domain: return None
+            
+            # Remove TLD
+            company = domain.rsplit('.', 1)[0]
+            
+            # Common public domains to ignore for company name
+            public_domains = {'gmail', 'yahoo', 'hotmail', 'outlook', 'icloud', 'aol', 'protonmail'}
+            if company.lower() in public_domains:
+                return None
+                
+            return company.title()
+        except: return None
     
+    # AI/ML/Tech Related Keywords to filter posts
+    AI_KEYWORDS = [
+        'ai', 'artificial intelligence', 'machine learning', 'ml', 'mlops',
+        'llm', 'large language model', 'rag', 'gen ai', 'generative ai', 'agentic',
+        'deep learning', 'neural network', 'nlp', 'computer vision',
+        'developer', 'data engineer', 'data scientist', 'ml engineer', 'ai engineer', 
+        'pytorch', 'tensorflow', 'python', 'fine tuning', 'langchain', 'llamaindex',
+        'openai', 'anthropic', 'claude', 'gemini', 'llama', 'stable diffusion',
+        'huggingface', 'transformers', 'vector database', 'pinecone', 'milvus',
+        'weaviate', 'chromadb', 'bert', 'gpt', 'convolutional', 'recurrent', 'gan',
+        'reinforcement learning', 'automl', 'pandas', 'numpy', 'scikit-learn',
+        'fastapi', 'cuda', 'gpu', 'tensor', 'inference', 'deployment', 'model monitoring',
+        'software engineer', 'backend developer', 'fullstack', 'frontend', 'devops',
+        'cloud architect', 'aws', 'azure', 'gcp', 'saas', 'microservices', 'kubernetes', 'docker'
+    ]
+
+    # Job-related keywords (broad indicators)
+    JOB_KEYWORDS = [
+        'hiring', 'job', 'position', 'opportunity', 'opening',
+        'w2', 'c2c', 'corp-to-corp', '1099', 'bench', 'full time', 'full-time', 
+        'contract', 'immediate', 'looking for', 'seeking', 'recruiting', 
+        'join our team', 'apply', 'careers', 'employment', 'remote', 'hybrid', 'on-site',
+        'hourly rate', 'salary', 'stipend', 'freelance', 'temporary', 'consultant',
+        'staffing', 'agency', 'vendor', 'implementation partner', 'direct client',
+        'visa sponsorship', 'h1b', 'opt', 'gc', 'citizen', 'green card', 'ead'
+    ]
+
     @staticmethod
     def has_job_keywords(text):
         if not text:
             return False
         text_lower = text.lower()
-        return any(kw in text_lower for kw in config.JOB_KEYWORDS)
+        return any(kw in text_lower for kw in ProcessorModule.JOB_KEYWORDS)
     
     @staticmethod
     def is_ai_tech_related(text):
         if not text:
             return False
         text_lower = text.lower()
-        return any(kw in text_lower for kw in config.AI_KEYWORDS)
+        
+        for kw in ProcessorModule.AI_KEYWORDS:
+            kw_lower = kw.lower()
+            if len(kw_lower) <= 3:
+                # Use word boundaries for short keywords like 'ai', 'ml', 'nlp'
+                if re.search(rf'\b{re.escape(kw_lower)}\b', text_lower):
+                    return True
+            else:
+                if kw_lower in text_lower:
+                    return True
+        return False
+
+    @staticmethod
+    def extract_contract_type(text):
+        """Extract W2, C2C, 1099, etc. from text."""
+        if not text: return "N/A"
+        text_lower = text.lower()
+        results = []
+        if 'w2' in text_lower: results.append('W2')
+        if 'c2c' in text_lower or 'corp-to-corp' in text_lower or 'corp to corp' in text_lower: 
+            results.append('C2C')
+        if '1099' in text_lower: results.append('1099')
+        if 'full-time' in text_lower or 'full time' in text_lower: results.append('Full-Time')
+        if 'contract' in text_lower and 'c2c' not in text_lower and 'w2' not in text_lower:
+             results.append('Contract')
+        
+        return ", ".join(results) if results else "N/A"
+
+    @staticmethod
+    def classify_job_post(text):
+        """
+        Rule-based classifier to determine if a post is a job listing.
+        Returns (is_job, details_dict) where details include score and matched rules.
+        """
+        if not text: return False, {"score": 0, "reason": "No text"}
+        
+        text_lower = text.lower()
+        score = 0
+        matches = []
+        
+        # 1. Structural Headers (+20 each)
+        headers = [
+            'responsibilit', 'requirement', 'qualification', 'skills',
+            'what we are looking for', 'nice to have', 'must have', 'experience',
+            'ideal candidate', 'job description', 'essential', 'positions',
+            'openings available', 'roles:'
+        ]
+        for h in headers:
+            if h in text_lower:
+                score += 20
+                matches.append(f"Header: {h}")
+        
+        # 2. Hiring Intent (+15 each)
+        intent_phrases = [
+            'hiring', 'looking for', 'join our team', 'we are expanding', 
+            'open role', 'job opening', 'new role', 'we are looking for',
+            'positions available', 'seeking talent', 'immediate start',
+            'interviewing', 'hiring for', 'we have an opening'
+        ]
+        for phrase in intent_phrases:
+            if phrase in text_lower:
+                score += 15
+                matches.append(f"Intent: {phrase}")
+                
+        # 3. Call to Action (+15)
+        cta_patterns = [
+            r'send\s+(?:your\s+)?(?:resume|cv)', r'apply\s+at', r'link\s+in\s+bio',
+            r'dm\s+me', r'apply\s+here', r'email\s+me', r'share\s+profile', r'share\s+resume',
+            r'contact\s+at'
+        ]
+        for pattern in cta_patterns:
+            if re.search(pattern, text_lower):
+                score += 15
+                matches.append(f"CTA: {pattern}")
+                
+        # 4. Job Keywords (+5) - Scoring using the internal broad list
+        for kw in ProcessorModule.JOB_KEYWORDS:
+            if kw in text_lower:
+                score += 5
+                matches.append(f"Keyword: {kw}")
+                
+        # 5. Negative Rules (Penalties)
+        # Avoid candidates looking for work
+        negative_phrases = [
+            'open to work', 'looking for a new role', 'looking for my next adventure', 
+            'looking for a job', 'i am looking for', 'seeking new opportunities',
+            'i am seeking', 'unemployed'
+        ]
+        for phrase in negative_phrases:
+            if phrase in text_lower:
+                score -= 100
+                matches.append(f"NEGATIVE: {phrase}")
+                
+        is_job = score >= 40 # Lowered for maximum contract extraction
+        
+        return is_job, {
+            "score": score,
+            "is_job": is_job,
+            "matched_rules": list(set(matches)) # Dedupe matches
+        }

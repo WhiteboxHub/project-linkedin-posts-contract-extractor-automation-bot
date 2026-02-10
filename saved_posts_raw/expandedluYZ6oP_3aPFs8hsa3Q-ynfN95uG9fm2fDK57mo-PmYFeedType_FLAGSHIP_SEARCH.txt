@@ -1,0 +1,21 @@
+Happy Weekend everyone. I am still accepting candidates for the following role, with a deadline to send to our client by Monday EOD.
+
+**AI/GenAI Engineer | 4-month W2 | Portland, OR - Onsite | Global consultancy**
+
+This position supports a key client project with an ASAP start and strong extension potential.
+
+**What you'll do:**
+- Hands-on LLM work (GPT/BERT/LLaMA, RAG, embeddings, fine-tuning)
+- MLOps - Model deployment pipelines and production monitoring
+- GCP ML stack - BigQuery, Vertex AI, Dataflow
+- ML/Data Science project delivery
+- Knowledge Graphs experience is a big plus
+
+**Requirements:**
+- US Citizen/Green Card only (W2 onsite in Portland)
+- ML/Data Science project experience
+- Production GenAI deployment experience
+
+Portland-based AI/ML Engineers are encouraged to DM me your CV or drop a quick note about your recent GenAI work. I am happy to share the full specification and client details.
+
+#AIJobs #GenAI #MachineLearning #MLOps #GCP #PortlandTech

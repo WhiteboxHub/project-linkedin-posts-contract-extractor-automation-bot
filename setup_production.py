@@ -213,7 +213,7 @@ def setup_api_connection():
     print("=" * 70)
     print("\nYour bot is now configured for your account.")
     print(f"Linked to Employee ID: {employee_id}")
-    print("\nNext step: Run 'python linkedin_bot_complete.py'")
+    print("\nNext step: Run 'python main.py'")
     print("=" * 70)
 
 def auto_import_from_marketing():

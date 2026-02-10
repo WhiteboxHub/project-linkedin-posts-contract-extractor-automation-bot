@@ -1,6 +1,7 @@
 .env
 *.csv
 *.json
+!selectors.json
 __pycache__/
 *.pyc
 chromedriver
@@ -9,7 +10,11 @@ geckodriver
 output.csv
 chrome_profile/
 myenv/
+bot_profile/
+logs/
+data/
+saved_posts_raw/
 saved_posts/
 venv/
 *.db
-.json/
+
