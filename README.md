@@ -4,6 +4,10 @@ A robust, modular, and stealthy automation tool designed to extract contract-rel
 
 ## 🚀 Key Features
 
+- **Job Scheduler**: Integrated polling scheduler that fetches jobs from the backend and executes them automatically.
+- **Dynamic Keyword Assignment**: 
+  - **Centralized List**: All keywords are managed in `keywords.json`.
+  - **Round-Robin**: Keywords are assigned one-by-one to candidates in a rotating fashion, ensuring equal coverage.
 - **Advanced Search & Filtering**: Supports complex Boolean strings (e.g., `"AI AND Engineer AND W2"`) with strict date filtering (`past-24h`, `week`) and sorting (`date_posted`).
 - **Stealth Mode**: Integrates `undetected-chromedriver` and `selenium-stealth` with human-like scrolling and mouse movements to evade detection.
 - **Modular Architecture**: Clean separation of concerns (`Scraper`, `Processor`, `Storage`, `Browser`) for maintainability.
@@ -15,7 +19,6 @@ A robust, modular, and stealthy automation tool designed to extract contract-rel
   - **CSV**: Daily structured files (`output/YYYY-MM-DD/posts.csv`, `emails.csv`).
   - **Database**: DuckDB integration (`linkedin_data.db`).
 - **Metrics & Reporting**: Detailed end-of-run summary with success rates, skip reasons, and retry statistics.
-- **Dry Run Mode**: safely validate logic and selectors without writing data.
 
 ## 🏗 System Architecture
 
@@ -29,22 +32,16 @@ project-root/
 │   ├── processor_module.py  # Data cleaning, regex extraction (Email/Phone), and relevance scoring.
 │   ├── storage_manager.py   # Manages CSV/DB I/O, file structure, and deduplication.
 │   ├── metrics_manager.py   # Centralized tracking of counters, skips, and failures.
+│   ├── scheduler.py         # Polling worker for backend job execution.
 │   └── logger.py            # Structured JSON logging for audit trails.
 ├── main.py                  # Main Orchestrator. Coordinates the flow between modules.
+├── scheduler_main.py        # Entry point for the Job Scheduler.
 ├── config.py                # Configuration loader (Env vars, Selectors, Constants).
-├── keywords.json            # List of target search queries.
+├── keywords.json            # CENTRAL List of target search queries.
+├── candidates.json          # List of candidate credentials (without keywords).
 ├── job_activity_logger.py   # Integration with external backend (WBL).
 └── setup_production.py      # Onboarding script for new users.
 ```
-
-### Flow Diagram (Data Pipeline)
-1. **Init**: Load Config -> Init `BrowserManager` (Stealth) -> Validate Selectors.
-2. **Search**: Iterate `keywords.json` -> Construct Strict URL -> Navigate.
-3. **Collect**: Scroll (Human-like) -> Identify new Posts -> Extract Metadata.
-4. **Filter**: Check `Search Keywords` (AI/ML) + `Job Keywords` (Hiring/Contract).
-5. **Enrich**: If relevant & new -> Visit Profile -> Extract Email/Phone.
-6. **Persist**: Save to CSV/DB -> Log Metrics.
-7. **Report**: Print Summary -> Sync to Backend.
 
 ## 🛠️ Setup & Installation
 
@@ -73,8 +70,16 @@ CHROME_PROFILE_PATH=/Users/your_user/Library/Application Support/Google/Chrome
 CHROME_PROFILE_NAME=Default
 ```
 
-### 3. Customize Search
-Edit `keywords.json` to target specific roles:
+### 3. Setup Candidates
+Use the setup script to add valid LinkedIn credentials. 
+**Note:** You will NO LONGER be asked for keywords here.
+```bash
+python setup_production.py
+```
+Select Option 2 to manage `candidates.json`.
+
+### 4. Configure Keywords
+Edit `keywords.json` in the root directory. This is the **single source of truth** for all searches.
 ```json
 [
     "AI AND W2",
@@ -82,24 +87,26 @@ Edit `keywords.json` to target specific roles:
     "Machine Learning AND C2C"
 ]
 ```
-*Note: The bot automatically appends date filters (`past-24h`) via `config.py`.*
 
 ## 🏃 Usage
 
-### Standard Run
+### Option A: Run Scheduler (Recommended)
+Starts the polling worker. It will automatically pick up jobs and assign keywords round-robin to your candidates.
+```bash
+python scheduler_main.py
+```
+
+### Option B: Manual Run
+Runs the bot once for all configured candidates in `candidates.json`, assigning keywords sequentially.
 ```bash
 python main.py
 ```
 
-### Dry Run (Testing)
+### Option C: Dry Run (Testing)
 Set `DRY_RUN=True` in `.env` or `config.py` to simulate actions without saving data:
 ```bash
 python main.py
 ```
-*Useful for verifying selectors and navigation logic.*
-
-### Multi-Candidate Mode
-Create a `candidates.json` file to run the bot sequentially for multiple accounts (see `job_activity_logger.py` logic).
 
 ## 📊 Output & Metrics
 
@@ -125,12 +132,12 @@ FAILURE BREAKDOWN:
 ```
 
 ## 🔒 Security
-- **Credentials**: Never stored in code. utilize `.env`.
+- **Credentials**: Never stored in code. utilize `.env` or `candidates.json` (local only).
 - **Stealth**: 
   - `selenium-stealth` masks WebDriver properties.
   - `BrowserManager` implements random mouse movements and variable scrolling.
   - Proxies supported via `undetected-chromedriver`.
 
 ## 📝 Developer Notes
-- **Selectors**: Defined in `config.py`. Update this file if LinkedIn UI changes.
+- **Selectors**: Defined in `config.py` and `selectors.json`. Update `selectors.json` if LinkedIn UI changes.
 - **Logging**: Logs are structured JSON format for easy ingestion into monitoring tools (Splunk/ELK).

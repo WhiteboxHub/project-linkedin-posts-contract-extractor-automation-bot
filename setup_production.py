@@ -360,21 +360,22 @@ def setup_multi_candidate_config():
             pwd = input(" LinkedIn Password: ").strip()
             cid = input(" WBL Candidate ID (Optional, press Enter to skip): ").strip()
             cp = input(" Chrome Profile Name (Optional, e.g. 'Profile 1', press Enter for Default): ").strip()
-            kws = input(" Keywords (comma separated, e.g. 'AI Engineer, Data Scientist'): ").strip()
-            
             cand_obj = {
                 "linkedin_email": email,
                 "linkedin_password": pwd
             }
+            
             if cid:
-                cand_obj["candidate_id"] = int(cid)
+                cand_obj["candidate_id"] = int(cid) if cid.isdigit() else 0
+            
+            
             if cp:
                 cand_obj["chrome_profile"] = cp
-            if kws:
-                cand_obj["keywords"] = [k.strip() for k in kws.split(',') if k.strip()]
-            
+            else:
+                cand_obj["chrome_profile"] = "Default"
+
             candidates.append(cand_obj)
-            print(" Candidate added.")
+            print(" Candidate added (Keywords will be assigned dynamically from keywords.json).")
             
         elif sub == '2':
             if not candidates:
