@@ -168,17 +168,53 @@ class ScraperModule:
                 
                 for xpath in selectors:
                     try:
-                        copy_link_elem = post.find_element(By.XPATH, xpath)
-                        if copy_link_elem:
-                            parent = copy_link_elem.find_element(By.XPATH, "./..")
-                            # We can't use safe_get for chained calls easily without elem ref, 
-                            # but we can wrap safe_get on the parent.
-                            val = self.browser_manager.safe_get_attribute(parent, 'data-control-name') or self.browser_manager.safe_get_attribute(parent, 'id')
-                            if val and 'activity' in val: return val
+                        copy_link_elems = post.find_elements(By.XPATH, xpath)
+                        for copy_link_elem in copy_link_elems:
+                            current = copy_link_elem
+                            for _ in range(4): 
+                                try:
+                                    current = current.find_element(By.XPATH, "./..")
+                                    for attr in ['data-urn', 'data-activity-urn', 'data-id', 'componentkey', 'data-control-name', 'id']:
+                                        val = self.browser_manager.safe_get_attribute(current, attr)
+                                        if val and ('activity' in val or 'urn' in val or (val.replace('-', '').isalnum() and len(val) > 15)):
+                                            return val
+                                except: break
                     except: continue
             except: pass
 
-            # 4. Generate hash if truly nothing found
+           
+            try:
+                menu_selectors = config.SELECTORS['post']['extract_id'].get('control_menu_button', [])
+                if isinstance(menu_selectors, str): menu_selectors = [menu_selectors]
+                
+                for sel in menu_selectors:
+                    try:
+                        menu_btn = post.find_element(By.XPATH, sel)
+                        if menu_btn:
+                            
+                            try: menu_btn.click()
+                            except: self.driver.execute_script("arguments[0].click();", menu_btn)
+                            
+                            time.sleep(0.5) 
+                            
+                            
+                            link_selectors = config.SELECTORS['post']['extract_id']['copy_link_text']
+                            for lsel in link_selectors:
+                                try:
+                                    copy_elem = post.find_element(By.XPATH, lsel)
+                                    current = copy_elem
+                                    for _ in range(4):
+                                        current = current.find_element(By.XPATH, "./..")
+                                        for attr in ['data-urn', 'data-activity-urn', 'data-id', 'componentkey', 'data-control-name', 'id']:
+                                            val = self.browser_manager.safe_get_attribute(current, attr)
+                                            if val and ('activity' in val or 'urn' in val or len(val) > 15):
+                                                return val
+                                except: continue
+                            break 
+                    except: continue
+            except: pass
+
+            
             post_html = self.browser_manager.safe_get_attribute(post, 'outerHTML')
             if post_html:
                 return hashlib.md5(post_html[:500].encode()).hexdigest()
@@ -205,7 +241,7 @@ class ScraperModule:
             pass
         return ""
 
-    # [REMOVED] old clean_post_text - using modules.utils.clean_post_content instead
+  
 
 
     @retry_on_failure(retries=3, delay=5)
@@ -215,7 +251,7 @@ class ScraperModule:
         if config.DRY_RUN:
             logger.info("DRY RUN ACTIVE: Searching and extracting without saving.", extra={"step_name": "Search"})
         
-        # Construct URL with strict parameters
+        
         import urllib.parse
         encoded_kw = urllib.parse.quote(keyword)
         
@@ -612,6 +648,16 @@ class ScraperModule:
             # Catch-all for unexpected errors during extraction
             pass 
         
+        # [NEW] Ensure post_url is populated if we have an ID
+        if not data.get('post_url') and post_id:
+            # Construct standard LinkedIn post URL if it looks like a URN or valid ID
+            if 'urn:li:activity:' in post_id:
+                data['post_url'] = f"https://www.linkedin.com/feed/update/{post_id}"
+            elif post_id.isdigit():
+                 data['post_url'] = f"https://www.linkedin.com/feed/update/urn:li:activity:{post_id}"
+            elif len(post_id) > 15: # GUID or hash
+                 data['post_url'] = f"https://www.linkedin.com/feed/update/{post_id}"
+
         return data
 
     # [REMOVED] extract_full_profile_data - strictly feed-only now.

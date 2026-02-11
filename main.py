@@ -5,23 +5,15 @@ import os
 import config
 from datetime import datetime
 from selenium.common.exceptions import StaleElementReferenceException
-
-# New Modular Imports
 from modules import ScraperModule, ProcessorModule
 from modules.browser_manager import BrowserManager
 from modules.storage_manager import StorageManager
 from modules.logger import logger
-from modules.logger import logger
 from job_activity_logger import JobActivityLogger
 from modules.processed_post_store import ProcessedPostStore
-
+from modules.metrics_manager import MetricsTracker
 
 class LinkedInBotComplete:
-    """
-    Main Orchestrator class. 
-    Controls the bot's workflow, manages driver life-cycle via BrowserManager, 
-    handles storage via StorageManager, and coordinates between ScraperModule and ProcessorModule.
-    """
     def __init__(self, email=None, password=None, candidate_id=None, keywords=None, chrome_profile=None):
         self.linkedin_email = email or config.LINKEDIN_EMAIL
         self.linkedin_password = password or config.LINKEDIN_PASSWORD
@@ -33,25 +25,22 @@ class LinkedInBotComplete:
         
         self.keywords = keywords if keywords else []
         self.total_saved = 0
-        self.posts_saved = 0  # Track total posts saved to local storage
-        self.total_seen = 0   # Total posts encountered during session
-        self.total_relevant = 0 # Total posts passing AI/Tech keyword filter
-        self.total_synced = 0 # Total contacts successfully sent to backend
+        self.posts_saved = 0  
+        self.total_seen = 0   
+        self.total_relevant = 0 
+        self.total_synced = 0 
         
-        # Initialize logger with candidate ID if provided
+        
         self.activity_logger = JobActivityLogger()
         if self.candidate_id:
             self.activity_logger.selected_candidate_id = self.candidate_id
             
-        # Initialize metrics
-        from modules.metrics_manager import MetricsTracker
+        
+        
         self.metrics = MetricsTracker()
-            
-        # Initialize modules
         self.processor = ProcessorModule()
         self.processed_store = ProcessedPostStore()
-        self.scraper = None  # Initialized after driver in init_driver
-        
+        self.scraper = None 
     def load_keywords(self):
         # If keywords provided in constructor, use them
         if self.keywords:
@@ -131,9 +120,7 @@ class LinkedInBotComplete:
                 self.metrics.track_failure("Extraction Exception")
                 continue
             
-            # Construct post URL
-            # Construct post URL - Only use VALID URNs or numeric IDs
-            # Do NOT use MD5 hashes or other strings as part of the URL path
+            
             post_url = ""
             if post_id:
                 if 'urn:li:activity:' in post_id:
@@ -141,7 +128,7 @@ class LinkedInBotComplete:
                 elif post_id.isdigit():
                     post_url = f"{config.URLS['POST_BASE']}urn:li:activity:{post_id}/"
                 
-            # --- FALLBACK: If URL is empty (e.g. because ID was a hash), ask scraper to hunt for the real link ---
+            
             if not post_url: 
                  extracted_url = self.scraper.extract_post_url(post)
                  if extracted_url:
@@ -178,21 +165,21 @@ class LinkedInBotComplete:
                  logger.info(f"Skip: {', '.join(reasons)}", extra={"step_name": "Relevance Check", "post_id": post_id, "keyword": keyword})
                  self.metrics.track_skip(f"Irrelevant ({', '.join(reasons)})")
             
-            # Save ALL posts that match keywords with best available metadata
+           
             if post_id and is_relevant:
-                # Save full post content for later rule-based extraction
+               
                 full_text = f"{post_data.get('author_headline', '')}\n\n{post_data['post_text']}"
                 self.storage_manager.save_full_post(full_text, post_id, keyword, metadata=post_data)
                 
-                # Save metadata to CSV (raw)
+                
                 self.storage_manager.save_post_metadata(post_data, keyword, post_id)
                 
-                # Mark as processed using crash-safe store
+                
                 self.processed_store.add(post_id)
                 self.posts_saved += 1
                 posts_processed += 1
             else:
-                pass # Already skipped logging above
+                pass 
 
             time.sleep(random.uniform(1.5, 8.0))
         
@@ -200,7 +187,7 @@ class LinkedInBotComplete:
         return found
     
     def run(self):
-        """Run bot."""
+        
         try:
             logger.info("LinkedIn Complete Data Extractor (Modularized) Started", extra={"step_name": "Startup"})
             logger.info("Extracts: Name, Email, Phone, Company, Location.", extra={"step_name": "Startup"})
@@ -215,14 +202,14 @@ class LinkedInBotComplete:
             
             self.init_driver()
             
-            # Check if we are already logged in via profile
+            
             logger.info("Checking session...", extra={"step_name": "Startup"})
             self.browser_manager.navigate(config.URLS['FEED'])
             if not self.browser_manager.login(self.linkedin_email, self.linkedin_password):
                 logger.critical("Login failed!", extra={"step_name": "Login"})
                 return
 
-            # CRITICAL: Validate UI before proceeding
+            
             if not self.scraper.validate_selectors():
                 logger.critical("Aborting: UI does not match expected selectors.", extra={"step_name": "Startup"})
                 return
@@ -235,18 +222,18 @@ class LinkedInBotComplete:
                 logger.info(f"Starting Keyword {idx}/{len(self.keywords)}: {keyword}", extra={"step_name": "Orchestrator"})
                 self.process_keyword(keyword)
                 
-                # Random delay between keywords
+                
                 if idx < len(self.keywords):
                     sleep_time = random.uniform(10, 20)
                     logger.info(f"Sleeping {sleep_time:.1f}s before next keyword...", extra={"step_name": "Orchestrator"})
                     time.sleep(sleep_time)
             
-            # Extraction and Syncing is now handled offline by DataExtractor in post-processing
+            
             logger.info("Collection complete. Post-processing will handle extraction and syncing.", extra={"step_name": "Shutdown"})
             logger.info(f"Metrics: {self.posts_saved} posts saved, {self.total_saved} contacts extracted", extra={"step_name": "Shutdown"})
             logger.info(f"Storage: {self.storage_manager.posts_dir}/", extra={"step_name": "Shutdown"})
 
-            # Metrics summary logged to console only - DataExtractor will handle backend sync
+           
             logger.info(f"Scan complete. {self.posts_saved} posts cached. Finalizing extraction...", extra={"step_name": "Shutdown"})
             
         except KeyboardInterrupt:
@@ -267,7 +254,7 @@ class LinkedInBotComplete:
             logger.info(f" - Contacts Synced:      {self.total_synced}", extra={"step_name": "Shutdown"})
             logger.info(f" - Posts Saved to Disk: {self.posts_saved}", extra={"step_name": "Shutdown"})
             
-            # Print detailed metrics summary
+            
             self.metrics.end_session()
             self.metrics.print_summary()
 
@@ -275,24 +262,36 @@ class LinkedInBotComplete:
 if __name__ == "__main__":
     import json
     
-    # Check for candidates.json
+    
     candidates_file = "candidates.json"
     
     if os.path.exists(candidates_file):
         logger.info(f"Found {candidates_file}. running multi-candidate mode...", extra={"step_name": "Main"})
         try:
             with open(candidates_file, 'r') as f:
-                candidates = json.load(f)
-            
-            if not candidates:
-                logger.warning("candidates.json exists but is empty. Falling back to .env settings...", extra={"step_name": "Main"})
-                # Fall through to single user block
-            else:
-                for i, cand in enumerate(candidates, 1):
+                candidates = json.load(f)       
+                central_keywords = []
+                try:
+                    with open(config.KEYWORDS_FILE, 'r', encoding='utf-8') as f:
+                        central_keywords = json.load(f)
+                except Exception as e:
+                    logger.error(f"Failed to load central keywords: {e}", extra={"step_name": "Main"})
+                    central_keywords = ["Information Technology"]
+
+                for i, cand in enumerate(candidates, 0): 
                     try:
-                        logger.info(f"PROCESSING CANDIDATE {i}/{len(candidates)}", extra={"step_name": "Main"})
+                        logger.info(f"PROCESSING CANDIDATE {i+1}/{len(candidates)}", extra={"step_name": "Main"})
                         logger.info(f"Email: {cand.get('linkedin_email')}", extra={"step_name": "Main"})
-                        logger.info(f"Candidate ID: {cand.get('candidate_id', 'Not Set')}", extra={"step_name": "Main"})
+                        
+                        
+                        if not central_keywords:
+                             assigned_keywords = ["Information Technology"]
+                        else:
+                            
+                             keyword = central_keywords[i % len(central_keywords)]
+                             assigned_keywords = [keyword]
+                             
+                        logger.info(f"Assigned Keyword: {assigned_keywords[0]}", extra={"step_name": "Main"})
                         
                         if not cand.get('linkedin_email') or not cand.get('linkedin_password'):
                             logger.error("Skipping - missing credentials", extra={"step_name": "Main"})
@@ -302,12 +301,12 @@ if __name__ == "__main__":
                             email=cand.get('linkedin_email'),
                             password=cand.get('linkedin_password'),
                             candidate_id=cand.get('candidate_id'),
-                            keywords=cand.get('keywords', []),
+                            keywords=assigned_keywords, 
                             chrome_profile=cand.get('chrome_profile')
                         )
                         bot.run()
                         
-                        # [NEW] Run Post-Processing Data Extraction
+                        
                         try:
                             from modules.data_extractor import DataExtractor
                             logger.info("Browser closed. Starting offline data extraction...", extra={"step_name": "Shutdown"})
@@ -316,7 +315,7 @@ if __name__ == "__main__":
                         except Exception as e:
                             logger.error(f"Post-processing failed: {e}", extra={"step_name": "Shutdown"}, exc_info=True)
                         
-                        # Cool down between candidates
+                       
                         if i < len(candidates):
                             wait_time = random.randint(30, 60)
                             logger.info(f"Waiting {wait_time} seconds before next candidate...", extra={"step_name": "Main"})
@@ -336,6 +335,6 @@ if __name__ == "__main__":
     else:
         logger.info("No candidates.json found. Running in single-user mode using .env settings.", extra={"step_name": "Main"})
 
-    # Fallback to single user .env mode
+   
     bot = LinkedInBotComplete()
     bot.run()
