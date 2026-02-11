@@ -40,7 +40,17 @@
         "extract_id": {
             "urn_component": ".//div[@data-urn]",
             "time_link": ".//a[contains(@href, 'update')]",
-            "copy_link_text": ".//span[contains(text(), 'Copy link to post')]"
+            "copy_link_text": [
+                ".//span[contains(text(), 'Copy link to post')]",
+                ".//p[contains(text(), 'Copy link to post')]",
+                "//*[contains(text(), 'Copy link to post')]"
+            ],
+            "control_menu_button": [
+                ".//button[contains(@aria-label, 'Control menu')]",
+                ".//button[contains(@class, 'control-menu')]",
+                ".//button[contains(@class, 'feed-shared-control-menu__trigger')]",
+                ".//button[contains(@class, 'artdeco-dropdown__trigger')]"
+            ]
         },
         "see_more_button": [
             ".//button[@data-testid='expandable-text-button']",
