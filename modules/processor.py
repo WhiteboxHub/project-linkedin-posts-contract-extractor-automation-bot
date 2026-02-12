@@ -106,31 +106,21 @@ class ProcessorModule:
             return company.title()
         except: return None
     
-    # AI/ML/Tech Related Keywords to filter posts
-    AI_KEYWORDS = [
-        'ai', 'artificial intelligence', 'machine learning', 'ml', 'mlops',
-        'llm', 'large language model', 'rag', 'gen ai', 'generative ai', 'agentic',
-        'deep learning', 'neural network', 'nlp', 'computer vision',
-        'developer', 'data engineer', 'data scientist', 'ml engineer', 'ai engineer', 
-        'pytorch', 'tensorflow', 'python', 'fine tuning', 'langchain', 'llamaindex',
-        'openai', 'anthropic', 'claude', 'gemini', 'llama', 'stable diffusion',
-        'huggingface', 'transformers', 'vector database', 'pinecone', 'milvus',
-        'weaviate', 'chromadb', 'bert', 'gpt', 'convolutional', 'recurrent', 'gan',
-        'reinforcement learning', 'automl', 'pandas', 'numpy', 'scikit-learn',
-        'fastapi', 'cuda', 'gpu', 'tensor', 'inference', 'deployment', 'model monitoring',
-        'software engineer', 'backend developer', 'fullstack', 'frontend', 'devops',
-        'cloud architect', 'aws', 'azure', 'gcp', 'saas', 'microservices', 'kubernetes', 'docker'
-    ]
+
 
     # Job-related keywords (broad indicators)
     JOB_KEYWORDS = [
         'hiring', 'job', 'position', 'opportunity', 'opening',
-        'w2', 'c2c', 'corp-to-corp', '1099', 'bench', 'full time', 'full-time', 
+        'w2', 'c2c', 'corp-to-corp', 'corp to corp', '1099', 'bench', 'full time', 'full-time', 
         'contract', 'immediate', 'looking for', 'seeking', 'recruiting', 
         'join our team', 'apply', 'careers', 'employment', 'remote', 'hybrid', 'on-site',
         'hourly rate', 'salary', 'stipend', 'freelance', 'temporary', 'consultant',
         'staffing', 'agency', 'vendor', 'implementation partner', 'direct client',
-        'visa sponsorship', 'h1b', 'opt', 'gc', 'citizen', 'green card', 'ead'
+        'visa sponsorship', 'h1b', 'opt', 'gc', 'citizen', 'green card', 'ead',
+        'send resume', 'share profile', 'email me', 'reaching out', 'dm me',
+        'urgent role', 'immediate requirement', 'looking to hire', 'multiple positions',
+        'worked on a role', 'open for', 'resumes to', 'drop your email',
+        'interested candidates', 'comment below', 'hiring for'
     ]
 
     @staticmethod
@@ -140,22 +130,36 @@ class ProcessorModule:
         text_lower = text.lower()
         return any(kw in text_lower for kw in ProcessorModule.JOB_KEYWORDS)
     
+
+
     @staticmethod
-    def is_ai_tech_related(text):
-        if not text:
-            return False
-        text_lower = text.lower()
+    def extract_zip(text):
+        """Extract a US zip code (5 digits) from text."""
+        if not text: return ""
+        # Look for 5-digit zip codes
+        match = re.search(r'\b\d{5}(?:-\d{4})?\b', text)
+        if match:
+            return match.group(0)
+        return ""
+
+    @staticmethod
+    def extract_job_title(text):
+        """
+        Attempt to extract a job title from the post text.
+        Looks at the first few lines and matches against common tech roles.
+        """
+        if not text: return "Unknown Role"
         
-        for kw in ProcessorModule.AI_KEYWORDS:
-            kw_lower = kw.lower()
-            if len(kw_lower) <= 3:
-                # Use word boundaries for short keywords like 'ai', 'ml', 'nlp'
-                if re.search(rf'\b{re.escape(kw_lower)}\b', text_lower):
-                    return True
-            else:
-                if kw_lower in text_lower:
-                    return True
-        return False
+        # 1. Look for explicit labels: "Role: ...", "Position: ..."
+        labels = [r'role[:\s]+', r'position[:\s]+', r'title[:\s]+', r'hiring\s+for\s+', r'looking\s+for\s+(?:a\s+)?']
+        for label in labels:
+            match = re.search(label + r'([^\n,.]+)', text, re.IGNORECASE)
+            if match:
+                title = match.group(1).strip()
+                if len(title) > 3 and len(title) < 100:
+                    return title.title()
+
+        return "Hiring Post"
 
     @staticmethod
     def extract_contract_type(text):

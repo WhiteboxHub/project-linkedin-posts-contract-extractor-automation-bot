@@ -310,8 +310,7 @@ def auto_import_from_marketing():
                     "linkedin_email": email,
                     "linkedin_password": pwd,
                     "candidate_id": cid or 0,
-                    "chrome_profile": profile or "Default",
-                    "keywords": ["AI Engineer hiring"] # Default keyword
+                    "chrome_profile": profile or "Default"
                 }
                 imported.append(cand)
                 print(f"  + Queued: {email}")

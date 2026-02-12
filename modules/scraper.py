@@ -621,8 +621,9 @@ class ScraperModule:
                 logger.debug(f"Skipping technical/numeric post container: {data['post_text'][:20]}...")
                 return data
 
-            data['is_relevant'] = self.processor.is_ai_tech_related(data['post_text'])
-            data['has_job'] = self.processor.has_job_keywords(data['post_text'])
+            is_job, job_details = self.processor.classify_job_post(data['post_text'])
+            data['is_relevant'] = is_job
+            data['has_job'] = is_job
             
             if data['post_text']:
                 data['email'] = self.processor.extract_email(data['post_text'])

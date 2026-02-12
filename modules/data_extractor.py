@@ -8,28 +8,35 @@ from modules.logger import logger
 from job_activity_logger import JobActivityLogger
 
 class DataExtractor:
-    def __init__(self, raw_data_dir="data/raw_posts", output_dir="data/output"):
+    def __init__(self, raw_data_dir="data/raw_posts", output_dir="data/output", candidate_id=None, candidate_email=None):
         self.raw_data_dir = raw_data_dir
         self.output_dir = output_dir
+        self.candidate_id = candidate_id
+        self.candidate_email = candidate_email
         self.processor = ProcessorModule()
         self.activity_logger = JobActivityLogger()
+        if self.candidate_id:
+            try:
+                self.activity_logger.selected_candidate_id = int(self.candidate_id)
+            except (ValueError, TypeError):
+                pass
         
-    def run(self):
+    def run(self, target_date=None):
         """
         Main entry point:
-        1. Identify today's raw data folder (or scan all recent).
+        1. Identify the raw data folder (defaults to today).
         2. Iterate through JSON files.
         3. Extract contacts and identify job posts.
         4. Save to separate outputs: contacts_extracted.json and jobs.json.
         """
-        logger.info("Starting Post-Processing Extraction (Contacts & Jobs)...", extra={"step_name": "Extraction"})
+        # Default to today if no date provided
+        date_str = target_date or datetime.now().strftime('%Y-%m-%d')
+        logger.info(f"Starting Post-Processing Extraction for {date_str}...", extra={"step_name": "Extraction"})
         
-        # We default to processing *today's* folder, but logic could be expanded
-        today_str = datetime.now().strftime('%Y-%m-%d')
-        target_dir = os.path.join(self.raw_data_dir, today_str)
+        target_dir = os.path.join(self.raw_data_dir, date_str)
         
         if not os.path.exists(target_dir):
-            logger.warning(f"No raw data found for today ({target_dir})", extra={"step_name": "Extraction"})
+            logger.warning(f"No raw data found in {target_dir}", extra={"step_name": "Extraction"})
             return
             
         json_files = glob(os.path.join(target_dir, "*.json"))
@@ -44,6 +51,10 @@ class DataExtractor:
                     posts = json.load(f)
                     
                 for post in posts:
+                    # Filter: If candidate_id is set for this extractor, only process posts found by this candidate
+                    if self.candidate_id and str(post.get('candidate_id')) != str(self.candidate_id):
+                        continue
+                        
                     contacts, job_info = self._process_single_post(post)
                     if contacts:
                         all_contacts.extend(contacts)
@@ -54,7 +65,7 @@ class DataExtractor:
                 logger.error(f"Error processing file {dim_file}: {e}", extra={"step_name": "Extraction"})
                 
         # --- 3. SAVE TO DATE FOLDERS ---
-        out_path = os.path.join(self.output_dir, today_str)
+        out_path = os.path.join(self.output_dir, date_str)
         if not os.path.exists(out_path):
             os.makedirs(out_path)
             
@@ -67,14 +78,38 @@ class DataExtractor:
         # --- 5. SYNC TO BACKEND (Bulk Contacts) ---
         if all_contacts:
             logger.info(f"Syncing {len(all_contacts)} contacts to vendor daily contract...", extra={"step_name": "Sync"})
-            unique_contacts = list({c['email']: c for c in all_contacts}.values())
-            success = self.activity_logger.bulk_save_vendor_contacts(unique_contacts)
-            if success:
-                logger.info(f"Successfully synced {len(unique_contacts)} contacts to backend.", extra={"step_name": "Sync"})
+            unique_contacts = list({c['email']: c for c in all_contacts if c.get('email')}.values())
+            result = self.activity_logger.bulk_save_vendor_contacts(unique_contacts)
+            
+            if result:
+                inserted = result.get('inserted', 0)
+                failed = result.get('failed', 0)
+                duplicates = result.get('duplicates', 0)
+                
+                if inserted > 0:
+                    logger.info(f"Successfully synced {inserted} new contacts to backend.", extra={"step_name": "Sync"})
+                elif failed > 0:
+                    logger.error(f"Sync failed for {failed} contacts. Check the console for details.", extra={"step_name": "Sync"})
+                else:
+                    logger.info("Sync complete. No new contacts were inserted (all duplicates).", extra={"step_name": "Sync"})
             else:
-                logger.error("Failed to sync contacts to backend. Check your WBL_API_TOKEN.", extra={"step_name": "Sync"})
+                logger.error("Failed to connect to backend for contact sync.", extra={"step_name": "Sync"})
 
-        # --- 6. LOG SESSION SUMMARY (Job Activity Log) ---
+        # --- 6. SYNC TO BACKEND (Bulk Raw Positions / Jobs) ---
+        if all_jobs:
+            logger.info(f"Syncing {len(all_jobs)} jobs to raw positions table...", extra={"step_name": "Sync"})
+            result = self.activity_logger.bulk_save_raw_positions(all_jobs)
+            
+            if result:
+                inserted = result.get('inserted', 0)
+                if inserted > 0:
+                    logger.info(f"Successfully synced {inserted} jobs to backend.", extra={"step_name": "Sync"})
+                else:
+                    logger.info("Sync complete. No new jobs were inserted.", extra={"step_name": "Sync"})
+            else:
+                logger.error("Failed to connect to backend for job sync.", extra={"step_name": "Sync"})
+
+        # --- 7. LOG SESSION SUMMARY (Job Activity Log) ---
         summary_note = f"LinkedIn Extraction Complete: {len(all_contacts)} contacts found today, {len(all_jobs)} jobs identified."
         
         # Read the content of the extracted CSV to include in notes
@@ -158,6 +193,8 @@ class DataExtractor:
                     "linkedin_id": profile_url,             # Keeping for backward compatibility if needed
                     "post_url": post_url,
                     "source_keyword": post.get('search_keyword', ''),
+                    "candidate_id": post.get('candidate_id'),
+                    "candidate_email": post.get('candidate_email'),
                     "extraction_date": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 }
                 contacts.append(contact)
@@ -181,12 +218,18 @@ class DataExtractor:
                 "post_id": post.get('post_id'),
                 "post_url": post_url,
                 "author_name": post.get('author_name', 'Unknown'),
+                "job_title": self.processor.extract_job_title(post_text),
+                "company": (emails and self.processor.extract_company_from_email(emails[0])) or post.get('company', 'Unknown'),
                 "linkedin_id": post.get('linkedin_id', ''),
                 "source_keyword": post.get('search_keyword', ''),
                 "extraction_date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 "job_score": job_details['score'],
                 "job_matches": "; ".join(job_details['matched_rules']),
                 "contract_type": self.processor.extract_contract_type(post_text),
+                "location": post.get('location', ''),
+                "raw_zip": self.processor.extract_zip(post_text) or self.processor.extract_zip(post.get('location', '')),
+                "candidate_id": post.get('candidate_id'),
+                "candidate_email": post.get('candidate_email'),
                 # Include contact info if available, even if redundant
                 "contact_email": emails[0] if emails else "",
                 "contact_phone": primary_phone,
@@ -210,7 +253,7 @@ class DataExtractor:
         # CSV
         keys = ["full_name", "email", "phone", "author_linkedin_id", "linkedin_internal_id", "company", "linkedin_id", "post_url", "source_keyword", "extraction_date"]
         with open(csv_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=keys)
+            writer = csv.DictWriter(f, fieldnames=keys, extrasaction='ignore')
             writer.writeheader()
             if unique_contacts:
                 writer.writerows(unique_contacts)
@@ -236,7 +279,7 @@ class DataExtractor:
         ]
         
         with open(csv_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=keys)
+            writer = csv.DictWriter(f, fieldnames=keys, extrasaction='ignore')
             writer.writeheader()
             if unique_jobs:
                 writer.writerows(unique_jobs)

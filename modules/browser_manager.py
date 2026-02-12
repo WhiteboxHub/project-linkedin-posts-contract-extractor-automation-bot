@@ -209,14 +209,9 @@ class BrowserManager:
             
     def login(self, email, password):
         """Perform login if needed."""
-        # Check if already logged in (Stricter check)
-        # Just checking URL is insufficient as guest page can have 'feed' in parameters
-        
         def is_logged_in_check():
              if "feed" not in self.get_current_url(): return False
-             # Check for search bar as proxy for "logged in UI"
              try:
-                 # Re-use the robust selector list if possible, or just a known simple one
                  if self.driver.find_elements(By.XPATH, "//input[contains(@class, 'search-global-typeahead__input')]"):
                      return True
                  if self.driver.find_elements(By.XPATH, "//input[contains(@placeholder, 'Search')]"):
@@ -234,39 +229,54 @@ class BrowserManager:
             return False
 
         self.navigate(config.URLS['LOGIN'])
-        time.sleep(2)
+        time.sleep(3)
         
-        # Check again if redirect handled it
-        if "feed" in self.get_current_url():
+        if "feed" in self.get_current_url().lower():
              logger.info("Redirected to Feed. Logged in.", extra={"step_name": "BrowserManager"})
              return True
 
-        # Helper to try list of selectors
         def send_keys_to_first_found(selectors, value, key_to_press=None):
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            
             if isinstance(selectors, str): selectors = [selectors]
             for selector in selectors:
                 try:
-                    elem = self.driver.find_element(By.ID, selector)
+                    # Add a short explicit wait for the field
+                    elem = WebDriverWait(self.driver, 5).until(
+                        EC.presence_of_element_located((By.ID, selector))
+                    )
                     elem.clear()
                     elem.send_keys(value)
                     if key_to_press:
-                        time.sleep(1)
+                        time.sleep(0.5)
                         elem.send_keys(key_to_press)
                     return True
                 except: continue
             return False
 
-        if not send_keys_to_first_found(config.SELECTORS['login']['username'], email):
+        user_ok = send_keys_to_first_found(config.SELECTORS['login']['username'], email)
+        if not user_ok:
             logger.error("Could not find login username field.", extra={"step_name": "BrowserManager"})
 
-        time.sleep(1)
+        time.sleep(random.uniform(1.0, 2.0))
         
-        if not send_keys_to_first_found(config.SELECTORS['login']['password'], password, Keys.RETURN):
+        pass_ok = send_keys_to_first_found(config.SELECTORS['login']['password'], password, Keys.RETURN)
+        if not pass_ok:
              logger.error("Could not find login password field.", extra={"step_name": "BrowserManager"})
 
-        time.sleep(5)
-        logger.info("Logged in!", extra={"step_name": "BrowserManager"})
-        return True
+        if not user_ok and not pass_ok:
+            return False
+
+        time.sleep(random.uniform(5.0, 8.0))
+        
+        # Verify success
+        if is_logged_in_check():
+            logger.info("Logged in successfully!", extra={"step_name": "BrowserManager"})
+            return True
+        else:
+            logger.warning("Login procedure finished but feed not detected. Check for CAPTCHA.", extra={"step_name": "BrowserManager"})
+            return True # Still return True to allow manual intervention/check
 
     def human_scroll(self, limit_range=(800, 1200)):
         """

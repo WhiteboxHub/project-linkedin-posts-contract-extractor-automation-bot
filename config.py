@@ -47,6 +47,9 @@ CHROME_PROFILE_NAME = os.getenv('CHROME_PROFILE_NAME', 'Default')
 # Force a specific Chrome version for the driver (e.g., 144)
 CHROME_VERSION = os.getenv('CHROME_VERSION') # Leave empty for auto-detection
 
+# Toggle undetected-chromedriver
+USE_UC = os.getenv('USE_UC', 'True').lower() == 'true'
+
 # LinkedIn Selectors
 # LinkedIn Selectors - Loaded from JSON
 import json
