@@ -1,6 +1,6 @@
 
 import requests
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 import os
 from dotenv import load_dotenv
@@ -52,8 +52,8 @@ class JobActivityLogger:
         endpoint = f"{base_url}/vendor_contact"
         linkedin_id = self._extract_linkedin_id(data.get('linkedin_id'))
         
-        # Use provided source_email or fallback to env var
-        final_source_email = source_email or os.getenv('LINKEDIN_EMAIL')
+       
+        final_source_email = source_email or data.get('candidate_email') or os.getenv('LINKEDIN_EMAIL')
         
         payload = {
             "full_name": (data.get('full_name') or 'Unknown')[:250],
@@ -63,7 +63,7 @@ class JobActivityLogger:
             "linkedin_internal_id": data.get('linkedin_internal_id') or linkedin_id, 
             "company_name": (data.get('company_name') or '')[:250],
             "location": (data.get('location') or '')[:250],
-            "source_email": final_source_email,
+            "source_email": None,
             "job_source": "LinkedIn Job Post Extractor Bot"
         }
         
@@ -153,8 +153,9 @@ class JobActivityLogger:
                 "linkedin_internal_id": internal_id, 
                 "company_name": company_name,
                 "location": location,
-                "source_email": final_source_email,
-                "job_source": "LinkedIn Job Post Extractor Bot"
+                "source_email": None,
+                "job_source": "LinkedIn Job Post Extractor Bot",
+                "extraction_date": datetime.now().strftime("%Y-%m-%d")
             })
             
         if not contacts_payload:
@@ -179,12 +180,81 @@ class JobActivityLogger:
             
             response.raise_for_status()
             result = response.json()
-            print(f"  [SUCCESS] Bulk sync complete: {result.get('inserted', 0)} inserted, {result.get('duplicates', 0)} duplicates, {result.get('failed', 0)} failed.")
-            return True
+            inserted = result.get('inserted', 0)
+            failed = result.get('failed', 0)
+            duplicates = result.get('duplicates', 0)
+            
+            print(f"  [SUMMARY] Bulk sync: {inserted} inserted, {duplicates} duplicates, {failed} failed.")
+            
+            if failed > 0:
+                print(f"  [ERROR] {failed} contacts failed to sync. Detailed reasons:")
+                for fc in result.get('failed_contacts', []):
+                    reason = fc.get('reason', 'Unknown reason')
+                    name = fc.get('full_name', 'Unknown')
+                    email = fc.get('email', 'Unknown')
+                    print(f"    - {name} ({email}): {reason}")
+            
+            return result
         except Exception as e:
             if not isinstance(e, requests.exceptions.HTTPError):
                 print(f"  [ERROR] Bulk sync failed: {e}")
+            return None
+
+    def bulk_save_raw_positions(self, jobs_list: list) -> bool:
+        """Sync identified job posts to the raw_position table in the backend."""
+        if not self.api_token or not jobs_list:
             return False
+            
+        if '/api' in self.api_url:
+            base_url = self.api_url.rstrip('/')
+        else:
+            base_url = f"{self.api_url.rstrip('/')}/api"
+            
+        endpoint = f"{base_url}/raw-positions/bulk"
+        
+        positions_payload = []
+        for job in jobs_list:
+            # Map bot fields to backend RawPositionCreate schema
+            positions_payload.append({
+                "candidate_id": job.get('candidate_id') or (self.selected_candidate_id if self.selected_candidate_id != 0 else None),
+                "source": "linkedin",
+                "source_uid": f"{self.job_unique_id}_{job.get('post_id')}", 
+                "raw_title": job.get('job_title', 'Unknown Role'),
+                "raw_company": job.get('company') or job.get('author_name', 'Unknown Company'),
+                "raw_location": job.get('location', ''), 
+                "raw_zip": job.get('raw_zip', ''),
+                "raw_description": job.get('post_text_preview', ''),
+                "raw_contact_info": f"Email: {job.get('contact_email')}, Phone: {job.get('contact_phone')}",
+                "raw_notes": f"Score: {job.get('job_score')}, Matches: {job.get('job_matches')}, URL: {job.get('post_url')}, Keyword: {job.get('source_keyword')}",
+                "raw_payload": job,
+                "processing_status": "new"
+            })
+            
+        if not positions_payload:
+            return True
+            
+        payload = {"positions": positions_payload}
+        
+        try:
+            response = requests.post(endpoint, json=payload, headers=self.headers)
+            if response.status_code != 200:
+                print(f"  [ERROR] Bulk raw positions sync failed with status {response.status_code}")
+                try:
+                    error_json = response.json()
+                    print(f"  [ERROR] Details: {error_json.get('detail', response.text)}")
+                except:
+                    print(f"  [ERROR] Details: {response.text}")
+                    
+            response.raise_for_status()
+            result = response.json()
+            inserted = result.get('inserted', 0)
+            skipped = result.get('skipped', 0)
+            print(f"  [SUMMARY] Raw positions sync: {inserted} inserted, {skipped} skipped.")
+            return result
+        except Exception as e:
+            if not isinstance(e, requests.exceptions.HTTPError):
+                print(f"  [ERROR] Bulk raw positions sync failed: {e}")
+            return None
 
 
     def log_activity(
