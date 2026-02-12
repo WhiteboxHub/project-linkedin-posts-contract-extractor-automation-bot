@@ -11,8 +11,10 @@ class StorageManager:
     Manages data persistence including DuckDB, CSV exports, 
     and file system storage for post content.
     """
-    def __init__(self):
+    def __init__(self, candidate_id=None, candidate_email=None):
         self.current_date_str = datetime.now().strftime('%Y-%m-%d')
+        self.candidate_id = candidate_id
+        self.candidate_email = candidate_email
         
         # [UPDATED] Date-based structure for RAW posts
         self.base_raw_dir = "data/raw_posts"
@@ -147,7 +149,9 @@ class StorageManager:
                 "linkedin_id": linkedin_id,
                 "post_text": post_lines,  # Store as array of lines
                 "extraction_date": datetime.now().strftime('%Y-%m-%d'),
-                "search_keyword": keyword
+                "search_keyword": keyword,
+                "candidate_id": self.candidate_id,
+                "candidate_email": self.candidate_email
             }
             
             # Append to posts array

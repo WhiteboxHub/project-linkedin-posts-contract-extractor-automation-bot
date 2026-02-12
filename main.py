@@ -21,7 +21,7 @@ class LinkedInBotComplete:
         
         # Managers
         self.browser_manager = BrowserManager(chrome_profile=chrome_profile)
-        self.storage_manager = StorageManager()
+        self.storage_manager = StorageManager(candidate_id=self.candidate_id, candidate_email=self.linkedin_email)
         
         self.keywords = keywords if keywords else []
         self.total_saved = 0
@@ -310,7 +310,7 @@ if __name__ == "__main__":
                         try:
                             from modules.data_extractor import DataExtractor
                             logger.info("Browser closed. Starting offline data extraction...", extra={"step_name": "Shutdown"})
-                            extractor = DataExtractor()
+                            extractor = DataExtractor(candidate_id=cand.get('candidate_id'), candidate_email=cand.get('linkedin_email'))
                             extractor.run()
                         except Exception as e:
                             logger.error(f"Post-processing failed: {e}", extra={"step_name": "Shutdown"}, exc_info=True)
