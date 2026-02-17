@@ -5,6 +5,7 @@ import random
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from selenium.common.exceptions import StaleElementReferenceException
 from selenium_stealth import stealth
 import config
 from modules.logger import logger
