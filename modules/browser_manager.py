@@ -48,11 +48,16 @@ class BrowserManager:
     def init_driver(self):
         logger.info("Initializing Undetected Chrome...", extra={"step_name": "BrowserManager"})
         chrome_options = uc.ChromeOptions()
+        chrome_options.set_capability("pageLoadStrategy", "eager")
         chrome_options.add_argument("--start-maximized")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--ignore-certificate-errors")
         chrome_options.add_argument("--disable-popup-blocking")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--dns-prefetch-disable")
+        chrome_options.add_argument("--disable-ipv6")
         
         # Load existing Chrome profile if configured
         if config.CHROME_PROFILE_PATH:
@@ -309,30 +314,23 @@ class BrowserManager:
             logger.debug(f"Human scroll failed: {e}", extra={"step_name": "BrowserManager"})
 
     def human_mouse_move(self):
-        """
-        Simulates random mouse movements to deter bot detection.
-        Uses ActionChains to move to random coordinates or elements.
-        """
         if not self.driver: return
 
         try:
             from selenium.webdriver.common.action_chains import ActionChains
-            
-            # 1. Random small offset from current position (simulated)
-            # Note: Selenium doesn't easily allow "move to x,y" without an element reference 
-            # in standard mode, but we can move relative to body or perform "dummy" moves.
+           
             
             body = self.driver.find_element(By.TAG_NAME, "body")
             
             # Move to random visible elements (headers, buttons, texts)
             possible_targets = self.driver.find_elements(By.CSS_SELECTOR, "h1, h2, span, p, a")
             if possible_targets:
-                target = random.choice(possible_targets[:20]) # Limit to top 20 to avoid slow finds
+                target = random.choice(possible_targets[:20]) 
                 if target.is_displayed():
                     ActionChains(self.driver).move_to_element(target).perform()
                     time.sleep(random.uniform(0.2, 0.7))
         except:
-            pass # Fail silently, this is just enhancement
+            pass 
 
     def quit(self):
         if self.driver:
