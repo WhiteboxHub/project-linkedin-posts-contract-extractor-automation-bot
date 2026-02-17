@@ -15,7 +15,12 @@ class BotReporter:
         self.username = config.SMTP_USERNAME
         self.password = config.SMTP_PASSWORD
         self.email_from = config.EMAIL_FROM
-        self.email_to = config.EMAIL_TO
+        
+        # Support multiple recipients (comma-separated)
+        if config.EMAIL_TO:
+            self.email_to = [email.strip() for email in config.EMAIL_TO.split(',')]
+        else:
+            self.email_to = []
     
     def _is_configured(self):
         return all([self.server, self.port, self.username, self.password, self.email_from, self.email_to])
@@ -42,7 +47,7 @@ class BotReporter:
             
         msg = MIMEMultipart()
         msg['From'] = self.email_from
-        msg['To'] = self.email_to
+        msg['To'] = ', '.join(self.email_to)  # Join multiple recipients for header
         msg['Subject'] = subject
         
         msg.attach(MIMEText(html_body, 'html'))
@@ -53,8 +58,8 @@ class BotReporter:
                 server.starttls()
                 server.login(self.username, self.password)
                 text = msg.as_string()
-                server.sendmail(self.email_from, self.email_to, text)
-                logger.info(f"Email report sent successfully to {self.email_to}", extra={"step_name": "BotReporter"})
+                server.sendmail(self.email_from, self.email_to, text)  # Send to list of recipients
+                logger.info(f"Email report sent successfully to {len(self.email_to)} recipient(s): {', '.join(self.email_to)}", extra={"step_name": "BotReporter"})
                 return True
         except Exception as e:
             logger.error(f"Failed to send email report: {e}", extra={"step_name": "BotReporter"}, exc_info=True)
