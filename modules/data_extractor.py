@@ -70,7 +70,7 @@ class DataExtractor:
             os.makedirs(out_path)
             
         self._save_contacts(all_contacts, out_path, filename="contacts_extracted")
-        self._save_jobs(all_jobs, out_path, filename="jobs")
+        unique_jobs_saved = self._save_jobs(all_jobs, out_path, filename="jobs")
         
         # Consolidated master logic removed as per user request
 
@@ -96,9 +96,10 @@ class DataExtractor:
                 logger.error("Failed to connect to backend for contact sync.", extra={"step_name": "Sync"})
 
         # --- 6. SYNC TO BACKEND (Bulk Raw Positions / Jobs) ---
-        if all_jobs:
-            logger.info(f"Syncing {len(all_jobs)} jobs to raw positions table...", extra={"step_name": "Sync"})
-            result = self.activity_logger.bulk_save_raw_positions(all_jobs)
+        if unique_jobs_saved:
+            logger.info(f"Syncing {len(unique_jobs_saved)} unique jobs to raw positions table...", extra={"step_name": "Sync"})
+            # Sync the exact data that was saved to jobs.json
+            result = self.activity_logger.bulk_save_raw_positions(unique_jobs_saved)
             
             if result:
                 inserted = result.get('inserted', 0)
@@ -286,6 +287,8 @@ class DataExtractor:
             
         if unique_jobs:
             logger.info(f"Saved {len(unique_jobs)} unique jobs to {json_path}", extra={"step_name": "Extraction"})
+            
+        return unique_jobs
 
     def _save_activity_summary(self, count, notes):
         """Append session summary to activity_logs.csv."""

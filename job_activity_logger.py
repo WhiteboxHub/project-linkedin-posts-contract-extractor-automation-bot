@@ -217,8 +217,9 @@ class JobActivityLogger:
             # Map bot fields to backend RawPositionCreate schema
             positions_payload.append({
                 "candidate_id": job.get('candidate_id') or (self.selected_candidate_id if self.selected_candidate_id != 0 else None),
-                "source": "linkedin",
-                "source_uid": f"{self.job_unique_id}_{job.get('post_id')}", 
+                "source": self.job_unique_id, # Source is the Bot ID
+                "source_uid": job.get('post_id'), # Unique ID within the source (Bot)
+                "extractor_version": "v1.0",
                 "raw_title": job.get('job_title', 'Unknown Role'),
                 "raw_company": job.get('company') or job.get('author_name', 'Unknown Company'),
                 "raw_location": job.get('location', ''), 
