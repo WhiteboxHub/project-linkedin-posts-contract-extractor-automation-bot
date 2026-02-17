@@ -29,6 +29,7 @@ class LinkedInBotComplete:
         self.total_seen = 0   
         self.total_relevant = 0 
         self.total_synced = 0 
+        self.keyword_metrics = {} 
         
         
         self.activity_logger = JobActivityLogger()
@@ -82,6 +83,15 @@ class LinkedInBotComplete:
         found = 0
         posts_processed = 0
         
+        
+        # Initialize keyword metrics
+        self.keyword_metrics[keyword] = {
+            'seen': 0,
+            'relevant': 0,
+            'extracted': 0,
+            'saved': 0
+        }
+        
         for post in posts:
             # Check if we've reached the run limit
             if self.total_saved >= config.MAX_CONTACTS_PER_RUN:
@@ -104,8 +114,11 @@ class LinkedInBotComplete:
             try:
                 post_data = self.scraper.extract_post_data(post, get_full_html=True)
                 self.total_seen += 1
+                self.keyword_metrics[keyword]['seen'] += 1
+                
                 if post_data.get('is_relevant'):
                     self.total_relevant += 1
+                    self.keyword_metrics[keyword]['relevant'] += 1
             except StaleElementReferenceException:
                 logger.warning("Element went stale. Attempting recovery...", extra={"step_name": "Post Extraction", "post_id": post_id, "keyword": keyword})
                 fresh_post = self.scraper.find_post_by_id(post_id)
@@ -159,6 +172,7 @@ class LinkedInBotComplete:
                 found += 1
                 self.metrics.increment('posts_extracted')
                 self.total_saved += 1
+                self.keyword_metrics[keyword]['extracted'] += 1
             else:
                  reasons = []
                  if not post_data['is_relevant']: reasons.append("Not matched keywords")
@@ -178,6 +192,7 @@ class LinkedInBotComplete:
                 self.processed_store.add(post_id)
                 self.posts_saved += 1
                 posts_processed += 1
+                self.keyword_metrics[keyword]['saved'] += 1
             else:
                 pass 
 
@@ -255,8 +270,17 @@ class LinkedInBotComplete:
             logger.info(f" - Posts Saved to Disk: {self.posts_saved}", extra={"step_name": "Shutdown"})
             
             
+            
             self.metrics.end_session()
             self.metrics.print_summary()
+
+            # --- Email Reporting ---
+            try:
+                from modules.bot_reporter import BotReporter
+                reporter = BotReporter(self)
+                reporter.send_run_report()
+            except Exception as e:
+                logger.error(f"Failed to send email report: {e}", extra={"step_name": "Shutdown"}, exc_info=True)
 
 
 if __name__ == "__main__":
