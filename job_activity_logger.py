@@ -3,6 +3,8 @@ import requests
 from datetime import date, datetime
 from typing import Optional
 import os
+import base64
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -18,6 +20,8 @@ class JobActivityLogger:
     def __init__(self):
         self.api_url = os.getenv('WBL_API_URL', '')
         self.api_token = os.getenv('WBL_API_TOKEN', '')
+        self.api_email = os.getenv('WBL_API_EMAIL', '')
+        self.api_password = os.getenv('WBL_API_PASSWORD', '')
         self.job_unique_id = os.getenv('JOB_UNIQUE_ID', 'bot_linkedin_post_contact_extractor')
         self.employee_id = int(os.getenv('EMPLOYEE_ID', '353'))
         self.selected_candidate_id = int(os.getenv('SELECTED_CANDIDATE_ID', '0'))
@@ -27,9 +31,87 @@ class JobActivityLogger:
             "Content-Type": "application/json"
         }
         
-        
         if not self.api_token:
             print("  WARNING: WBL_API_TOKEN not set. Activity logging will fail.")
+
+    def _is_token_expired(self, buffer_seconds=300) -> bool:
+        """Decode JWT locally and check if it's expired (or within buffer_seconds of expiry)."""
+        try:
+            if not self.api_token:
+                return True
+            parts = self.api_token.split('.')
+            if len(parts) != 3:
+                return True
+            payload_b64 = parts[1]
+            # Pad base64 string
+            payload_b64 += '=' * (-len(payload_b64) % 4)
+            payload = json.loads(base64.b64decode(payload_b64))
+            exp = payload.get('exp')
+            if not exp:
+                return True
+            return datetime.utcnow().timestamp() >= (exp - buffer_seconds)
+        except Exception:
+            return True  # Assume expired if we can't decode
+
+    def _refresh_token(self) -> bool:
+        """Login to WBL API and update the token in memory and in .env file."""
+        if not self.api_email or not self.api_password:
+            print("  [TOKEN] Cannot auto-refresh: WBL_API_EMAIL or WBL_API_PASSWORD not set in .env")
+            return False
+
+        if '/api' in self.api_url:
+            base_url = self.api_url.rstrip('/')
+        else:
+            base_url = f"{self.api_url.rstrip('/')}/api"
+
+        login_url = f"{base_url}/login"
+        try:
+            print(f"  [TOKEN] Refreshing WBL API token...")
+            response = requests.post(
+                login_url,
+                data={'username': self.api_email, 'password': self.api_password},
+                headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                timeout=15
+            )
+            if response.status_code != 200:
+                print(f"  [TOKEN] Refresh failed: {response.status_code} - {response.text[:200]}")
+                return False
+
+            data = response.json()
+            new_token = data.get('access_token')
+            if not new_token:
+                print(f"  [TOKEN] Refresh failed: no access_token in response")
+                return False
+
+            # Update in memory
+            self.api_token = new_token
+            self.headers['Authorization'] = f"Bearer {new_token}"
+
+            # Update .env file on disk so next run uses the fresh token
+            env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+            if os.path.exists(env_path):
+                with open(env_path, 'r') as f:
+                    lines = f.readlines()
+                with open(env_path, 'w') as f:
+                    for line in lines:
+                        if line.startswith('WBL_API_TOKEN='):
+                            f.write(f'WBL_API_TOKEN={new_token}\n')
+                        else:
+                            f.write(line)
+
+            print(f"  [TOKEN] Token refreshed successfully. New expiry saved to .env.")
+            return True
+
+        except Exception as e:
+            print(f"  [TOKEN] Refresh error: {e}")
+            return False
+
+    def _ensure_valid_token(self):
+        """Check token expiry and auto-refresh if needed before making an API call."""
+        if self._is_token_expired():
+            print("  [TOKEN] Token is expired or expiring soon. Attempting auto-refresh...")
+            self._refresh_token()
+
 
     def _extract_linkedin_id(self, url: str) -> str:
 
@@ -41,7 +123,7 @@ class JobActivityLogger:
         return clean_url
 
     def save_vendor_contact(self, data: dict, source_email: str = None) -> bool:
- 
+        self._ensure_valid_token()
         if not self.api_token:
             return False
         if '/api' in self.api_url:
@@ -97,6 +179,7 @@ class JobActivityLogger:
             return False
 
     def bulk_save_vendor_contacts(self, data_list: list, source_email: str = None) -> bool:
+        self._ensure_valid_token()
         if not self.api_token or not data_list:
             return False
             
@@ -202,6 +285,7 @@ class JobActivityLogger:
 
     def bulk_save_raw_positions(self, jobs_list: list) -> bool:
         """Sync identified job posts to the raw_position table in the backend."""
+        self._ensure_valid_token()
         if not self.api_token or not jobs_list:
             return False
             
@@ -265,7 +349,7 @@ class JobActivityLogger:
         candidate_id: int = 0, 
         activity_date: Optional[str] = None
     ) -> bool:
-     
+        self._ensure_valid_token()
         if not self.api_token:
             print(" Cannot log activity: No API token configured")
             return False
@@ -317,6 +401,7 @@ class JobActivityLogger:
             return False
     
     def _get_job_type_id(self) -> Optional[int]:
+        self._ensure_valid_token()
         try:
            
             if '/api' in self.api_url:
