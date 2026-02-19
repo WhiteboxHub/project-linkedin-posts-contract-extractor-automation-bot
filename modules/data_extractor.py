@@ -144,8 +144,8 @@ class DataExtractor:
         return {
             "contacts_found": len(all_contacts),
             "contacts_synced": total_inserted,
-            "jobs_found": len(unique_jobs_saved) if unique_jobs_saved else 0,
-            "jobs_synced": jobs_inserted
+            "positions_found": len(unique_jobs_saved) if unique_jobs_saved else 0,
+            "positions_synced": jobs_inserted
         }
 
     def _process_single_post(self, post):

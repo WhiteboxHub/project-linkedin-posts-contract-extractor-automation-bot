@@ -348,8 +348,8 @@ if __name__ == "__main__":
                                 "relevant": bot.total_relevant,
                                 "saved": bot.total_saved,
                                 "synced": extraction_results.get('contacts_synced', 0),
-                                "jobs_found": extraction_results.get('jobs_found', 0),
-                                "jobs_synced": extraction_results.get('jobs_synced', 0),
+                                "positions_found": extraction_results.get('positions_found', 0),
+                                "positions_synced": extraction_results.get('positions_synced', 0),
                                 "posts_disk": bot.posts_saved
                             })
                             # bot.send_report() # Removed individual reports
@@ -407,8 +407,8 @@ if __name__ == "__main__":
             "relevant": bot.total_relevant,
             "saved": bot.total_saved,
             "synced": extraction_results.get('contacts_synced', 0),
-            "jobs_found": extraction_results.get('jobs_found', 0),
-            "jobs_synced": extraction_results.get('jobs_synced', 0),
+            "positions_found": extraction_results.get('positions_found', 0),
+            "positions_synced": extraction_results.get('positions_synced', 0),
             "posts_disk": bot.posts_saved
         }]
         from modules.bot_reporter import ConsolidatedBotReporter
