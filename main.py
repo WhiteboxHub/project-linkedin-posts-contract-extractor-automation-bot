@@ -269,18 +269,18 @@ class LinkedInBotComplete:
             logger.info(f" - Contacts Synced:      {self.total_synced}", extra={"step_name": "Shutdown"})
             logger.info(f" - Posts Saved to Disk: {self.posts_saved}", extra={"step_name": "Shutdown"})
             
-            
-            
             self.metrics.end_session()
             self.metrics.print_summary()
 
-            # --- Email Reporting ---
-            try:
-                from modules.bot_reporter import BotReporter
-                reporter = BotReporter(self)
-                reporter.send_run_report()
-            except Exception as e:
-                logger.error(f"Failed to send email report: {e}", extra={"step_name": "Shutdown"}, exc_info=True)
+    def send_report(self):
+        """Sends the final run report via email."""
+        try:
+            from modules.bot_reporter import BotReporter
+            reporter = BotReporter(self)
+            return reporter.send_run_report()
+        except Exception as e:
+            logger.error(f"Failed to send email report: {e}", extra={"step_name": "Shutdown"}, exc_info=True)
+            return False
 
 
 if __name__ == "__main__":
@@ -301,6 +301,9 @@ if __name__ == "__main__":
                 except Exception as e:
                     logger.error(f"Failed to load central keywords: {e}", extra={"step_name": "Main"})
                     central_keywords = ["Information Technology"]
+                
+                # List to collect results for the consolidated report
+                all_run_results = []
 
                 for i, cand in enumerate(candidates, 0): 
                     try:
@@ -335,7 +338,20 @@ if __name__ == "__main__":
                             from modules.data_extractor import DataExtractor
                             logger.info("Browser closed. Starting offline data extraction...", extra={"step_name": "Shutdown"})
                             extractor = DataExtractor(candidate_id=cand.get('candidate_id'), candidate_email=cand.get('linkedin_email'))
-                            extractor.run()
+                            synced_count = extractor.run()
+                            
+                            # Collect metrics for consolidated report
+                            all_run_results.append({
+                                "candidate_id": cand.get('candidate_id'),
+                                "email": cand.get('linkedin_email'),
+                                "seen": bot.total_seen,
+                                "relevant": bot.total_relevant,
+                                "saved": bot.total_saved,
+                                "synced": synced_count or 0,
+                                "posts_disk": bot.posts_saved
+                            })
+                            # bot.send_report() # Removed individual reports
+                            
                         except Exception as e:
                             logger.error(f"Post-processing failed: {e}", extra={"step_name": "Shutdown"}, exc_info=True)
                         
@@ -349,6 +365,17 @@ if __name__ == "__main__":
                         logger.error(f"Error processing candidate {i}: {e}", extra={"step_name": "Main"}, exc_info=True)
                         continue
                 
+                
+                # Send consolidated report after all candidates are processed
+                if all_run_results:
+                    try:
+                        from modules.bot_reporter import ConsolidatedBotReporter
+                        logger.info("Sending consolidated run report...", extra={"step_name": "Shutdown"})
+                        reporter = ConsolidatedBotReporter(all_run_results)
+                        reporter.send_consolidated_report()
+                    except Exception as e:
+                        logger.error(f"Failed to send consolidated report: {e}", extra={"step_name": "Shutdown"})
+
                 logger.info("All candidates processed.", extra={"step_name": "Main"})
                 exit(0)
 
@@ -362,3 +389,28 @@ if __name__ == "__main__":
    
     bot = LinkedInBotComplete()
     bot.run()
+    
+    # Run data extraction and reporting for single-user mode
+    try:
+        from modules.data_extractor import DataExtractor
+        logger.info("Starting offline data extraction...", extra={"step_name": "Shutdown"})
+        extractor = DataExtractor()
+        synced_count = extractor.run()
+        bot.total_synced = synced_count or 0
+        
+        # Still send a report for single user mode, but use the same logic
+        results = [{
+            "candidate_id": "Single User",
+            "email": bot.linkedin_email,
+            "seen": bot.total_seen,
+            "relevant": bot.total_relevant,
+            "saved": bot.total_saved,
+            "synced": bot.total_synced,
+            "posts_disk": bot.posts_saved
+        }]
+        from modules.bot_reporter import ConsolidatedBotReporter
+        reporter = ConsolidatedBotReporter(results)
+        reporter.send_consolidated_report()
+        
+    except Exception as e:
+        logger.error(f"Post-processing failed: {e}", extra={"step_name": "Shutdown"}, exc_info=True)
