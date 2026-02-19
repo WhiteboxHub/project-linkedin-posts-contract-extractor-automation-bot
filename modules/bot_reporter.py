@@ -218,6 +218,8 @@ class ConsolidatedBotReporter:
             total_relevant = sum(r.get('relevant', 0) for r in self.results)
             total_saved = sum(r.get('saved', 0) for r in self.results)
             total_synced = sum(r.get('synced', 0) for r in self.results)
+            total_positions_found = sum(r.get('positions_found', 0) for r in self.results)
+            total_positions_synced = sum(r.get('positions_synced', 0) for r in self.results)
 
             summary_rows = ""
             for r in self.results:
@@ -229,6 +231,8 @@ class ConsolidatedBotReporter:
                     <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('relevant', 0)}</td>
                     <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('saved', 0)}</td>
                     <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('synced', 0)}</td>
+                    <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('positions_found', 0)}</td>
+                    <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('positions_synced', 0)}</td>
                 </tr>
                 """
 
@@ -260,6 +264,14 @@ class ConsolidatedBotReporter:
                         <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Synced to Backend</th>
                         <td style="padding: 10px; border: 1px solid #ddd;">{total_synced}</td>
                     </tr>
+                    <tr>
+                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Positions Found</th>
+                        <td style="padding: 10px; border: 1px solid #ddd;">{total_positions_found}</td>
+                    </tr>
+                    <tr style="background-color: #f8f9fa;">
+                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Positions Synced</th>
+                        <td style="padding: 10px; border: 1px solid #ddd;">{total_positions_synced}</td>
+                    </tr>
                 </table>
 
                 <h3>Candidate Breakdown</h3>
@@ -271,6 +283,8 @@ class ConsolidatedBotReporter:
                         <th style="padding: 10px; border: 1px solid #ddd;">Relevant</th>
                         <th style="padding: 10px; border: 1px solid #ddd;">Extracted</th>
                         <th style="padding: 10px; border: 1px solid #ddd;">Synced</th>
+                        <th style="padding: 10px; border: 1px solid #ddd;">Positions Found</th>
+                        <th style="padding: 10px; border: 1px solid #ddd;">Positions Synced</th>
                     </tr>
                     {summary_rows}
                 </table>
