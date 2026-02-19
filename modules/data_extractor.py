@@ -37,13 +37,14 @@ class DataExtractor:
         
         if not os.path.exists(target_dir):
             logger.warning(f"No raw data found in {target_dir}", extra={"step_name": "Extraction"})
-            return
+            return 0
             
         json_files = glob(os.path.join(target_dir, "*.json"))
         logger.info(f"Found {len(json_files)} JSON files to process in {target_dir}", extra={"step_name": "Extraction"})
         
         all_contacts = []
         all_jobs = []
+        total_inserted = 0
         
         for dim_file in json_files:
             try:
@@ -73,7 +74,6 @@ class DataExtractor:
         unique_jobs_saved = self._save_jobs(all_jobs, out_path, filename="jobs")
         
         # Consolidated master logic removed as per user request
-
         
         # --- 5. SYNC TO BACKEND (Bulk Contacts) ---
         if all_contacts:
@@ -85,6 +85,8 @@ class DataExtractor:
                 inserted = result.get('inserted', 0)
                 failed = result.get('failed', 0)
                 duplicates = result.get('duplicates', 0)
+                
+                total_inserted = inserted
                 
                 if inserted > 0:
                     logger.info(f"Successfully synced {inserted} new contacts to backend.", extra={"step_name": "Sync"})
@@ -138,6 +140,8 @@ class DataExtractor:
         print(f"Daily Results: {out_path}")
         print(f"Activity Log: {os.path.join(self.output_dir, 'activity_logs.csv')}\n")
 
+        return total_inserted
+
     def _process_single_post(self, post):
         """
         Evaluate post for BOTH contacts and job classification.
@@ -174,7 +178,7 @@ class DataExtractor:
                             post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
                         elif post_id.isdigit():
                             post_url = f"https://www.linkedin.com/feed/update/urn:li:activity:{post_id}/"
-                        # Explicitly DO NOT construct URL if it's a hash or unknown format
+                       
                 
                 # Extract internal ID from profile URL (e.g. "john-doe" or "ACoAA...")
                 profile_url = post.get('linkedin_id', '') or post.get('profile_url', '')
@@ -182,16 +186,16 @@ class DataExtractor:
                 if profile_url and '/in/' in profile_url:
                     parts = profile_url.rstrip('/').split('/in/')
                     if len(parts) > 1:
-                        internal_id = parts[1].split('?')[0] # Get the part after /in/ and before query
+                        internal_id = parts[1].split('?')[0] 
                 
                 contact = {
                     "full_name": name,
                     "email": email,
                     "phone": primary_phone,
-                    "author_linkedin_id": profile_url,      # Full Profile URL
-                    "linkedin_internal_id": internal_id,    # The handle/ID part
+                    "author_linkedin_id": profile_url,      
+                    "linkedin_internal_id": internal_id,    
                     "company": company or "Unknown",
-                    "linkedin_id": profile_url,             # Keeping for backward compatibility if needed
+                    "linkedin_id": profile_url,             
                     "post_url": post_url,
                     "source_keyword": post.get('search_keyword', ''),
                     "candidate_id": post.get('candidate_id'),
