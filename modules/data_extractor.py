@@ -98,15 +98,16 @@ class DataExtractor:
                 logger.error("Failed to connect to backend for contact sync.", extra={"step_name": "Sync"})
 
         # --- 6. SYNC TO BACKEND (Bulk Raw Positions / Jobs) ---
+        jobs_inserted = 0
         if unique_jobs_saved:
             logger.info(f"Syncing {len(unique_jobs_saved)} unique jobs to raw positions table...", extra={"step_name": "Sync"})
             # Sync the exact data that was saved to jobs.json
             result = self.activity_logger.bulk_save_raw_positions(unique_jobs_saved)
             
             if result:
-                inserted = result.get('inserted', 0)
-                if inserted > 0:
-                    logger.info(f"Successfully synced {inserted} jobs to backend.", extra={"step_name": "Sync"})
+                jobs_inserted = result.get('inserted', 0)
+                if jobs_inserted > 0:
+                    logger.info(f"Successfully synced {jobs_inserted} jobs to backend.", extra={"step_name": "Sync"})
                 else:
                     logger.info("Sync complete. No new jobs were inserted.", extra={"step_name": "Sync"})
             else:
@@ -140,7 +141,12 @@ class DataExtractor:
         print(f"Daily Results: {out_path}")
         print(f"Activity Log: {os.path.join(self.output_dir, 'activity_logs.csv')}\n")
 
-        return total_inserted
+        return {
+            "contacts_found": len(all_contacts),
+            "contacts_synced": total_inserted,
+            "jobs_found": len(unique_jobs_saved) if unique_jobs_saved else 0,
+            "jobs_synced": jobs_inserted
+        }
 
     def _process_single_post(self, post):
         """

@@ -338,7 +338,7 @@ if __name__ == "__main__":
                             from modules.data_extractor import DataExtractor
                             logger.info("Browser closed. Starting offline data extraction...", extra={"step_name": "Shutdown"})
                             extractor = DataExtractor(candidate_id=cand.get('candidate_id'), candidate_email=cand.get('linkedin_email'))
-                            synced_count = extractor.run()
+                            extraction_results = extractor.run()
                             
                             # Collect metrics for consolidated report
                             all_run_results.append({
@@ -347,7 +347,9 @@ if __name__ == "__main__":
                                 "seen": bot.total_seen,
                                 "relevant": bot.total_relevant,
                                 "saved": bot.total_saved,
-                                "synced": synced_count or 0,
+                                "synced": extraction_results.get('contacts_synced', 0),
+                                "jobs_found": extraction_results.get('jobs_found', 0),
+                                "jobs_synced": extraction_results.get('jobs_synced', 0),
                                 "posts_disk": bot.posts_saved
                             })
                             # bot.send_report() # Removed individual reports
@@ -395,8 +397,7 @@ if __name__ == "__main__":
         from modules.data_extractor import DataExtractor
         logger.info("Starting offline data extraction...", extra={"step_name": "Shutdown"})
         extractor = DataExtractor()
-        synced_count = extractor.run()
-        bot.total_synced = synced_count or 0
+        extraction_results = extractor.run()
         
         # Still send a report for single user mode, but use the same logic
         results = [{
@@ -405,7 +406,9 @@ if __name__ == "__main__":
             "seen": bot.total_seen,
             "relevant": bot.total_relevant,
             "saved": bot.total_saved,
-            "synced": bot.total_synced,
+            "synced": extraction_results.get('contacts_synced', 0),
+            "jobs_found": extraction_results.get('jobs_found', 0),
+            "jobs_synced": extraction_results.get('jobs_synced', 0),
             "posts_disk": bot.posts_saved
         }]
         from modules.bot_reporter import ConsolidatedBotReporter
