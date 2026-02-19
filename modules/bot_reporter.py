@@ -227,6 +227,7 @@ class ConsolidatedBotReporter:
                 <tr>
                     <td style='padding: 8px; border: 1px solid #ddd;'>{r.get('candidate_id', 'N/A')}</td>
                     <td style='padding: 8px; border: 1px solid #ddd;'>{r.get('email', 'N/A')}</td>
+                    <td style='padding: 8px; border: 1px solid #ddd; font-size: 0.9em;'>{r.get('keywords', 'N/A')}</td>
                     <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('seen', 0)}</td>
                     <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('relevant', 0)}</td>
                     <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('saved', 0)}</td>
@@ -279,6 +280,7 @@ class ConsolidatedBotReporter:
                     <tr style="background-color: #2c3e50; color: white;">
                         <th style="padding: 10px; border: 1px solid #ddd;">Candidate ID</th>
                         <th style="padding: 10px; border: 1px solid #ddd;">Email</th>
+                        <th style="padding: 10px; border: 1px solid #ddd;">Keywords</th>
                         <th style="padding: 10px; border: 1px solid #ddd;">Seen</th>
                         <th style="padding: 10px; border: 1px solid #ddd;">Relevant</th>
                         <th style="padding: 10px; border: 1px solid #ddd;">Extracted</th>

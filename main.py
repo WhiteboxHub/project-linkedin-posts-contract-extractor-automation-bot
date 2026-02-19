@@ -350,7 +350,8 @@ if __name__ == "__main__":
                                 "synced": extraction_results.get('contacts_synced', 0),
                                 "positions_found": extraction_results.get('positions_found', 0),
                                 "positions_synced": extraction_results.get('positions_synced', 0),
-                                "posts_disk": bot.posts_saved
+                                "posts_disk": bot.posts_saved,
+                                "keywords": ", ".join(assigned_keywords)
                             })
                             # bot.send_report() # Removed individual reports
                             
@@ -409,7 +410,8 @@ if __name__ == "__main__":
             "synced": extraction_results.get('contacts_synced', 0),
             "positions_found": extraction_results.get('positions_found', 0),
             "positions_synced": extraction_results.get('positions_synced', 0),
-            "posts_disk": bot.posts_saved
+            "posts_disk": bot.posts_saved,
+            "keywords": ", ".join(bot.keywords)
         }]
         from modules.bot_reporter import ConsolidatedBotReporter
         reporter = ConsolidatedBotReporter(results)
