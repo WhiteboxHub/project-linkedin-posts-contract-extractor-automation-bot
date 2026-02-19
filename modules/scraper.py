@@ -362,7 +362,7 @@ class ScraperModule:
         last_height = self.driver.execute_script("return document.body.scrollHeight")
         last_count = len(self._find_post_elements())
         no_growth_count = 0
-        max_scrolls = 25
+        max_scrolls = 45
         
         for i in range(1, max_scrolls + 1):
             # 1. Scroll Logic - Mix of smooth and jump
