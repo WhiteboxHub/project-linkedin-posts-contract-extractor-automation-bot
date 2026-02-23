@@ -6,6 +6,7 @@ import os
 import base64
 import json
 from dotenv import load_dotenv
+from modules.email_validator import EmailListValidator
 
 load_dotenv()
 
@@ -128,10 +129,29 @@ class JobActivityLogger:
             
         endpoint = f"{base_url}/automation-extracts/bulk"
         
+        # Validate emails before processing
+        print(f"  [VALIDATION] Validating {len(data_list)} contacts...")
+        validator = EmailListValidator(data_list=data_list)
+        # We run syntax and MX checks. SMTP check can be very slow, so we check if configured.
+        # For now, let's run the full pipeline as per user's script logic.
+        validator.normalize_emails('email')
+        validator.validate_syntax('email')
+        validator.validate_mx('email', max_workers=20)
+        validator.validate_mailbox('email', max_workers=20) 
+        
+        valid_df = validator.df[
+            (validator.df['syntax_valid']) & 
+            (validator.df['mx_valid']) & 
+            (validator.df['mailbox_status'] == 'valid')
+        ]
+        valid_data_list = valid_df.to_dict('records')
+        
+        print(f"  [VALIDATION] {len(valid_data_list)}/{len(data_list)} contacts passed validation.")
+        
         extracts_payload = []
         seen_emails = set()
         
-        for data in data_list:
+        for data in valid_data_list:
             email = data.get('email', '').strip().lower()
             if not email:
                 continue
