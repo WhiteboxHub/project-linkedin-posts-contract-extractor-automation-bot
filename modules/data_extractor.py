@@ -204,6 +204,7 @@ class DataExtractor:
                     "linkedin_id": profile_url,             
                     "post_url": post_url,
                     "source_keyword": post.get('search_keyword', ''),
+                    "post_id": post.get('post_id'),
                     "candidate_id": post.get('candidate_id'),
                     "candidate_email": post.get('candidate_email'),
                     "extraction_date": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
