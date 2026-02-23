@@ -10,13 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-class JobActivityLogger:    
-    """
-    Sole interface for backend communication with the WBL API.
-    Handles all HTTP requests, payload normalization, and error handling for synchronization.
-    No browser automation or business logic should reside here.
-    """
-    
+class JobActivityLogger:      
     def __init__(self):
         self.api_url = os.getenv('WBL_API_URL', '')
         self.api_token = os.getenv('WBL_API_TOKEN', '')
@@ -121,166 +115,73 @@ class JobActivityLogger:
         if '/in/' in clean_url:
             return clean_url.split('/in/')[-1].split('?')[0]
         return clean_url
-
-    def save_vendor_contact(self, data: dict, source_email: str = None) -> bool:
-        self._ensure_valid_token()
-        if not self.api_token:
-            return False
-        if '/api' in self.api_url:
-            base_url = self.api_url.rstrip('/')
-        else:
-            base_url = f"{self.api_url.rstrip('/')}/api"
-            
-        endpoint = f"{base_url}/vendor_contact"
-        linkedin_id = self._extract_linkedin_id(data.get('linkedin_id'))
-        
-       
-        final_source_email = source_email or data.get('candidate_email') or os.getenv('LINKEDIN_EMAIL')
-        
-        payload = {
-            "full_name": (data.get('full_name') or 'Unknown')[:250],
-            "email": data.get('email'),
-            "phone": data.get('phone'),
-            "linkedin_id": data.get('linkedin_id') or linkedin_id, 
-            "linkedin_internal_id": data.get('linkedin_internal_id') or linkedin_id, 
-            "company_name": (data.get('company_name') or '')[:250],
-            "location": (data.get('location') or '')[:250],
-            "source_email": None,
-            "job_source": "LinkedIn Job Post Extractor Bot"
-        }
-        
-        try:
-            
-            if not payload["source_email"] or "@" not in payload["source_email"]:
-                payload["source_email"] = None
-                
-            response = requests.post(endpoint, json=payload, headers=self.headers)
-            if response.status_code == 401:
-                print(f"  [ERROR] Sync failed: 401 Unauthorized. Your API token might be expired.")
-            response.raise_for_status()
-            return True
-        except requests.exceptions.RequestException as e:
-            # Log specific exception type and details
-            exc_type = type(e).__name__
-            error_msg = f"  [ERROR] Sync failed ({exc_type}): {e}"
-            
-            # Print response body if available for easier debugging
-            if hasattr(e, 'response') and e.response is not None:
-                try:
-                    error_detail = e.response.json()
-                    print(f"{error_msg}\n   Response Data: {error_detail}")
-                except:
-                    print(f"{error_msg}\n   Response Text: {e.response.text}")
-            else:
-                print(error_msg)
-            return False
-        except Exception as e:
-            print(f"  [ERROR] Sync failed (Unexpected): {e}")
-            return False
-
-    def bulk_save_vendor_contacts(self, data_list: list, source_email: str = None) -> bool:
+    def bulk_save_automation_contacts(self, data_list: list, source_type: str = None) -> bool:
         self._ensure_valid_token()
         if not self.api_token or not data_list:
             return False
-            
+        effective_source_type = source_type or self.job_unique_id
+
         if '/api' in self.api_url:
             base_url = self.api_url.rstrip('/')
         else:
             base_url = f"{self.api_url.rstrip('/')}/api"
             
-        endpoint = f"{base_url}/vendor_contact/bulk"
-        final_source_email = source_email or os.getenv('LINKEDIN_EMAIL')
-        if not final_source_email or "@" not in final_source_email:
-            final_source_email = None
-            
-        contacts_payload = []
-        seen_contacts = set() # Track duplicates within the current batch
+        endpoint = f"{base_url}/automation-extracts/bulk"
+        
+        extracts_payload = []
+        seen_emails = set()
         
         for data in data_list:
-            # Extract and normalize identifiers
-            raw_email = data.get('email')
-            email = raw_email.strip().lower() if raw_email else None
-            
-            raw_linkedin_id = data.get('linkedin_id')
-            linkedin_id = self._extract_linkedin_id(raw_linkedin_id) if raw_linkedin_id else None
-            
-            # Skip if we already have this contact in the current payload
-            contact_key = (email, linkedin_id)
-            if not email and not linkedin_id:
-                continue # Skip records with no identifiers
-                
-            if contact_key in seen_contacts:
+            email = data.get('email', '').strip().lower()
+            if not email:
                 continue
-            seen_contacts.add(contact_key)
             
-            # Backend expects specific fields. Truncate long strings to avoid 500 errors
-            full_name = (data.get('full_name') or 'Unknown')[:250]
-            company_name = (data.get('company_name') or '')[:250]
-            location = (data.get('location') or '')[:250]
-            
-            
-            internal_id = data.get('linkedin_internal_id')
-            if not internal_id and data.get('linkedin_id'):
-                 internal_id = self._extract_linkedin_id(data.get('linkedin_id'))
-
-            # 2. Public ID (Full URL) - Prefer author_linkedin_id or raw linkedin_id
-            public_id = data.get('author_linkedin_id') or data.get('linkedin_id')
-            
-            
-            
-            contacts_payload.append({
-                "full_name": full_name,
+            if email in seen_emails:
+                continue
+            seen_emails.add(email)
+            extracts_payload.append({
+                "full_name": data.get('full_name'),
                 "email": email,
                 "phone": data.get('phone'),
-                "linkedin_id": public_id,           
-                "linkedin_internal_id": internal_id, 
-                "company_name": company_name,
-                "location": location,
-                "source_email": None,
-                "job_source": "LinkedIn Job Post Extractor Bot",
-                "extraction_date": datetime.now().strftime("%Y-%m-%d")
+                "company_name": data.get('company') or data.get('company_name'),
+                "job_title": data.get('job_title'),
+                "city": data.get('city'),
+                "state": data.get('state'),
+                "country": data.get('country'),
+                "postal_code": data.get('postal_code') or data.get('zip'),
+                "linkedin_id": data.get('linkedin_id') or data.get('author_linkedin_id'),
+                "linkedin_internal_id": data.get('linkedin_internal_id'),
+                "source_type": effective_source_type,
+                "source_reference": job.get('post_id') or data.get('source_reference'),
+                "raw_payload": data
             })
             
-        if not contacts_payload:
-            print("  [INFO] No new/unique contacts to sync.")
+        if not extracts_payload:
             return True
             
-        payload = {"contacts": contacts_payload}
+        payload = {"extracts": extracts_payload}
         
         try:
             response = requests.post(endpoint, json=payload, headers=self.headers)
-            if response.status_code == 401:
-                print(f"  [ERROR] Bulk sync failed: 401 Unauthorized.")
-            
             if response.status_code != 200:
-                print(f"  [ERROR] Bulk sync failed with status {response.status_code}")
+                print(f"  [ERROR] Bulk automation extracts sync failed with status {response.status_code}")
                 try:
-                    # Capture detail from FastAPI error if available
                     error_json = response.json()
                     print(f"  [ERROR] Details: {error_json.get('detail', response.text)}")
                 except:
                     print(f"  [ERROR] Details: {response.text}")
-            
+                    
             response.raise_for_status()
             result = response.json()
             inserted = result.get('inserted', 0)
-            failed = result.get('failed', 0)
             duplicates = result.get('duplicates', 0)
+            failed = result.get('failed', 0)
             
-            print(f"  [SUMMARY] Bulk sync: {inserted} inserted, {duplicates} duplicates, {failed} failed.")
-            
-            if failed > 0:
-                print(f"  [ERROR] {failed} contacts failed to sync. Detailed reasons:")
-                for fc in result.get('failed_contacts', []):
-                    reason = fc.get('reason', 'Unknown reason')
-                    name = fc.get('full_name', 'Unknown')
-                    email = fc.get('email', 'Unknown')
-                    print(f"    - {name} ({email}): {reason}")
-            
+            print(f"  [SUMMARY] Automation extracts sync: {inserted} inserted, {duplicates} duplicates, {failed} failed.")
             return result
         except Exception as e:
             if not isinstance(e, requests.exceptions.HTTPError):
-                print(f"  [ERROR] Bulk sync failed: {e}")
+                print(f"  [ERROR] Bulk automation extracts sync failed: {e}")
             return None
 
     def bulk_save_raw_positions(self, jobs_list: list) -> bool:

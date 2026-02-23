@@ -77,9 +77,9 @@ class DataExtractor:
         
         # --- 5. SYNC TO BACKEND (Bulk Contacts) ---
         if all_contacts:
-            logger.info(f"Syncing {len(all_contacts)} contacts to vendor daily contract...", extra={"step_name": "Sync"})
+            logger.info(f"Syncing {len(all_contacts)} contacts to automated daily contacts table...", extra={"step_name": "Sync"})
             unique_contacts = list({c['email']: c for c in all_contacts if c.get('email')}.values())
-            result = self.activity_logger.bulk_save_vendor_contacts(unique_contacts)
+            result = self.activity_logger.bulk_save_automation_contacts(unique_contacts)
             
             if result:
                 inserted = result.get('inserted', 0)
@@ -89,7 +89,7 @@ class DataExtractor:
                 total_inserted = inserted
                 
                 if inserted > 0:
-                    logger.info(f"Successfully synced {inserted} new contacts to backend.", extra={"step_name": "Sync"})
+                    logger.info(f"Successfully synced {inserted} new contacts to automated daily table.", extra={"step_name": "Sync"})
                 elif failed > 0:
                     logger.error(f"Sync failed for {failed} contacts. Check the console for details.", extra={"step_name": "Sync"})
                 else:
