@@ -152,7 +152,7 @@ class JobActivityLogger:
                 "linkedin_id": data.get('linkedin_id') or data.get('author_linkedin_id'),
                 "linkedin_internal_id": data.get('linkedin_internal_id'),
                 "source_type": effective_source_type,
-                "source_reference": job.get('post_id') or data.get('source_reference'),
+                "source_reference": data.get('post_id') or data.get('source_reference'),
                 "raw_payload": data
             })
             
