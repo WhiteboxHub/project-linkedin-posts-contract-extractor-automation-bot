@@ -240,7 +240,7 @@ class ConsolidatedBotReporter:
             html_body = f"""
             <html>
             <body style="font-family: Arial, sans-serif;">
-                <h2 style="color: #2c3e50;">LinkedIn Bot consolidated Run Report</h2>
+                <h2 style="color: #2c3e50;">LinkedIn Posts Extractor Bot Run Report</h2>
                 <p><strong>Date:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
                 
                 <h3>Total Summary</h3>
