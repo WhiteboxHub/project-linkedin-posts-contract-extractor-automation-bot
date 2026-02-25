@@ -5,6 +5,7 @@ from typing import Optional
 import os
 import base64
 import json
+import pandas as pd
 from dotenv import load_dotenv
 from modules.email_validator import EmailListValidator
 
@@ -142,9 +143,11 @@ class JobActivityLogger:
         valid_df = validator.df[
             (validator.df['syntax_valid']) & 
             (validator.df['mx_valid']) & 
-            (validator.df['mailbox_status'] == 'valid')
+            (validator.df['mailbox_status'].isin(['valid', 'unknown']))
         ]
-        valid_data_list = valid_df.to_dict('records')
+        
+        # Replace NaN/Nat with None for JSON compliance
+        valid_data_list = valid_df.where(pd.notnull(valid_df), None).to_dict('records')
         
         print(f"  [VALIDATION] {len(valid_data_list)}/{len(data_list)} contacts passed validation.")
         
