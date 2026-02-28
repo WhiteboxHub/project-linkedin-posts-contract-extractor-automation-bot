@@ -5,8 +5,10 @@ from typing import Optional
 import os
 import base64
 import json
+import pandas as pd
 from dotenv import load_dotenv
 from modules.email_validator import EmailListValidator
+from modules.logger import logger
 
 load_dotenv()
 
@@ -144,10 +146,12 @@ class JobActivityLogger:
             (validator.df['mx_valid'])
         ]
         
-        # Replace NaN/Nat with None for JSON compliance
+        # Replace NaN/Nat/Inf with None for JSON compliance
+        valid_df = valid_df.replace([float('inf'), float('-inf')], None)
         valid_data_list = valid_df.where(pd.notnull(valid_df), None).to_dict('records')
         
-        print(f"  [VALIDATION] {len(valid_data_list)}/{len(data_list)} contacts passed validation.")
+        # Validation result logged via logger if needed later
+
         
         extracts_payload = []
         seen_emails = set()
@@ -182,6 +186,19 @@ class JobActivityLogger:
             
         payload = {"extracts": extracts_payload}
         
+        # Deep clean payload for JSON compliance
+        def clean_value(v):
+            if isinstance(v, float):
+                if v != v or v == float('inf') or v == float('-inf'):
+                    return None
+            elif isinstance(v, dict):
+                return {k: clean_value(val) for k, val in v.items()}
+            elif isinstance(v, list):
+                return [clean_value(val) for val in v]
+            return v
+            
+        payload = clean_value(payload)
+        
         try:
             response = requests.post(endpoint, json=payload, headers=self.headers)
             if response.status_code != 200:
@@ -200,9 +217,14 @@ class JobActivityLogger:
             
             print(f"  [SUMMARY] Automation extracts sync: {inserted} inserted, {duplicates} duplicates, {failed} failed.")
             return result
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Bulk automation extracts sync failed: {e}", extra={"step_name": "Sync"})
+            if e.response is not None:
+                logger.error(f"Status Code: {e.response.status_code}", extra={"step_name": "Sync"})
+                logger.error(f"Response: {e.response.text}", extra={"step_name": "Sync"})
+            return None
         except Exception as e:
-            if not isinstance(e, requests.exceptions.HTTPError):
-                print(f"  [ERROR] Bulk automation extracts sync failed: {e}")
+            logger.error(f"Unexpected error during automation extracts sync: {e}", extra={"step_name": "Sync"})
             return None
 
     def bulk_save_raw_positions(self, jobs_list: list) -> bool:
