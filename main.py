@@ -262,12 +262,12 @@ class LinkedInBotComplete:
         finally:
             self.browser_manager.quit()
             
-            logger.info("SESSION METRICS:", extra={"step_name": "Shutdown"})
+            logger.info("PHASE 1 COMPLETE: Collection and Disk Storage", extra={"step_name": "Shutdown"})
             logger.info(f" - Total Posts Seen:     {self.total_seen}", extra={"step_name": "Shutdown"})
             logger.info(f" - AI Relevant Posts:   {self.total_relevant}", extra={"step_name": "Shutdown"})
-            logger.info(f" - Contacts Found:       {self.total_saved}", extra={"step_name": "Shutdown"})
-            logger.info(f" - Contacts Synced:      {self.total_synced}", extra={"step_name": "Shutdown"})
-            logger.info(f" - Posts Saved to Disk: {self.posts_saved}", extra={"step_name": "Shutdown"})
+            logger.info(f" - Raw Contacts Saved:  {self.total_saved}", extra={"step_name": "Shutdown"})
+            logger.info(f" - Raw Posts on Disk:   {self.posts_saved}", extra={"step_name": "Shutdown"})
+            logger.info("PHASE 2 (Extraction & Sync) will begin now.", extra={"step_name": "Shutdown"})
             
             self.metrics.end_session()
             self.metrics.print_summary()
@@ -353,6 +353,12 @@ if __name__ == "__main__":
                                 "posts_disk": bot.posts_saved,
                                 "keywords": ", ".join(assigned_keywords)
                             })
+                            
+                            # Log the final sync results to the console for this candidate
+                            logger.info(f"FINAL SYNC SUMMARY (Candidate {cand.get('candidate_id')}):", extra={"step_name": "Main"})
+                            logger.info(f" - Contacts Extracted: {extraction_results.get('contacts_found', 0)}", extra={"step_name": "Main"})
+                            logger.info(f" - Contacts Synced:    {extraction_results.get('contacts_synced', 0)}", extra={"step_name": "Main"})
+                            logger.info(f" - Jobs Synced:        {extraction_results.get('positions_synced', 0)}", extra={"step_name": "Main"})
                             # bot.send_report() # Removed individual reports
                             
                         except Exception as e:
@@ -413,6 +419,12 @@ if __name__ == "__main__":
             "posts_disk": bot.posts_saved,
             "keywords": ", ".join(bot.keywords)
         }]
+        
+        logger.info("FINAL SYNC SUMMARY:", extra={"step_name": "Main"})
+        logger.info(f" - Contacts Extracted: {extraction_results.get('contacts_found', 0)}", extra={"step_name": "Main"})
+        logger.info(f" - Contacts Synced:    {extraction_results.get('contacts_synced', 0)}", extra={"step_name": "Main"})
+        logger.info(f" - Jobs Synced:        {extraction_results.get('positions_synced', 0)}", extra={"step_name": "Main"})
+        
         from modules.bot_reporter import ConsolidatedBotReporter
         reporter = ConsolidatedBotReporter(results)
         reporter.send_consolidated_report()
