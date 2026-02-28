@@ -35,19 +35,7 @@ class ProcessorModule:
             if is_image:
                 continue
                 
-            # Filter out common personal email domains
-            personal_domains = {'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'aol.com', 'protonmail.com'}
-            is_personal = False
-            for domain in personal_domains:
-                if email.lower().endswith(domain):
-                    is_personal = True
-                    break
-            
-            if is_personal:
-                continue
-                
-            # Filter out own email if defined
-            if config.LINKEDIN_EMAIL and email.lower().strip() == config.LINKEDIN_EMAIL.lower().strip():
+            if email.lower().strip().endswith("@gmail.com") or "gmail.com" in email.lower():
                 continue
                 
             valid_emails.append(email)
