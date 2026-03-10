@@ -254,26 +254,27 @@ class ConsolidatedBotReporter:
                         <td style="padding: 10px; border: 1px solid #ddd;">{total_seen}</td>
                     </tr>
                     <tr style="background-color: #f8f9fa;">
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Relevant Found</th>
+                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Relevant Posts</th>
                         <td style="padding: 10px; border: 1px solid #ddd;">{total_relevant}</td>
                     </tr>
                     <tr>
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Extracted</th>
+                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Contacts Found</th>
                         <td style="padding: 10px; border: 1px solid #ddd;">{total_saved}</td>
                     </tr>
                     <tr style="background-color: #f8f9fa;">
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Synced to Backend</th>
+                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Contacts Synced</th>
                         <td style="padding: 10px; border: 1px solid #ddd;">{total_synced}</td>
                     </tr>
                     <tr>
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Positions Found</th>
+                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Jobs Identified</th>
                         <td style="padding: 10px; border: 1px solid #ddd;">{total_positions_found}</td>
                     </tr>
                     <tr style="background-color: #f8f9fa;">
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Positions Synced</th>
+                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Jobs Synced</th>
                         <td style="padding: 10px; border: 1px solid #ddd;">{total_positions_synced}</td>
                     </tr>
                 </table>
+
 
                 <h3>Candidate Breakdown</h3>
                 <table style="border-collapse: collapse; width: 100%;">
@@ -282,14 +283,15 @@ class ConsolidatedBotReporter:
                         <th style="padding: 10px; border: 1px solid #ddd;">Email</th>
                         <th style="padding: 10px; border: 1px solid #ddd;">Keywords</th>
                         <th style="padding: 10px; border: 1px solid #ddd;">Seen</th>
-                        <th style="padding: 10px; border: 1px solid #ddd;">Relevant</th>
-                        <th style="padding: 10px; border: 1px solid #ddd;">Extracted</th>
+                        <th style="padding: 10px; border: 1px solid #ddd;">Relevant Posts</th>
+                        <th style="padding: 10px; border: 1px solid #ddd;">Contacts Found</th>
                         <th style="padding: 10px; border: 1px solid #ddd;">Synced</th>
-                        <th style="padding: 10px; border: 1px solid #ddd;">Positions Found</th>
-                        <th style="padding: 10px; border: 1px solid #ddd;">Positions Synced</th>
+                        <th style="padding: 10px; border: 1px solid #ddd;">Jobs Found</th>
+                        <th style="padding: 10px; border: 1px solid #ddd;">Jobs Synced</th>
                     </tr>
                     {summary_rows}
                 </table>
+
 
                 <p style="margin-top: 30px; font-size: 0.85em; color: #7f8c8d;">
                     <em>This is an automated consolidated report from the LinkedIn Posts Bot.</em>

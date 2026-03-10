@@ -206,7 +206,6 @@ class DataExtractor:
                     "source_keyword": post.get('search_keyword', ''),
                     "post_id": post.get('post_id'),
                     "candidate_id": post.get('candidate_id'),
-                    "candidate_email": post.get('candidate_email'),
                     "extraction_date": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 }
                 contacts.append(contact)
@@ -226,27 +225,26 @@ class DataExtractor:
                         post_url = f"https://www.linkedin.com/feed/update/urn:li:activity:{post_id}/"
                     # Explicitly DO NOT construct URL if it's a hash or unknown format
 
-            job_info = {
-                "post_id": post.get('post_id'),
-                "post_url": post_url,
-                "author_name": post.get('author_name', 'Unknown'),
-                "job_title": self.processor.extract_job_title(post_text),
-                "company": (emails and self.processor.extract_company_from_email(emails[0])) or post.get('company', 'Unknown'),
-                "linkedin_id": post.get('linkedin_id', ''),
-                "source_keyword": post.get('search_keyword', ''),
-                "extraction_date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                "job_score": job_details['score'],
-                "job_matches": "; ".join(job_details['matched_rules']),
-                "contract_type": self.processor.extract_contract_type(post_text),
-                "location": post.get('location', ''),
-                "raw_zip": self.processor.extract_zip(post_text) or self.processor.extract_zip(post.get('location', '')),
-                "candidate_id": post.get('candidate_id'),
-                "candidate_email": post.get('candidate_email'),
-                # Include contact info if available, even if redundant
-                "contact_email": emails[0] if emails else "",
-                "contact_phone": primary_phone,
-                "post_text_preview": post_text[:500].replace('\n', ' ') 
-            }
+                job_info = {
+                    "post_id": post.get('post_id'),
+                    "post_url": post_url,
+                    "author_name": post.get('author_name', 'Unknown'),
+                    "job_title": self.processor.extract_job_title(post_text),
+                    "company": (emails and self.processor.extract_company_from_email(emails[0])) or post.get('company', 'Unknown'),
+                    "linkedin_id": post.get('linkedin_id', ''),
+                    "source_keyword": post.get('search_keyword', ''),
+                    "extraction_date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    "job_score": job_details['score'],
+                    "job_matches": "; ".join(job_details['matched_rules']),
+                    "contract_type": self.processor.extract_contract_type(post_text),
+                    "location": post.get('location', ''),
+                    "raw_zip": self.processor.extract_zip(post_text) or self.processor.extract_zip(post.get('location', '')),
+                    "candidate_id": post.get('candidate_id'),
+                    # Include contact info if available, even if redundant
+                    "contact_email": emails[0] if emails else "",
+                    "contact_phone": primary_phone,
+                    "post_text_preview": post_text[:500].replace('\n', ' ') 
+                }
 
         return contacts, job_info
 
