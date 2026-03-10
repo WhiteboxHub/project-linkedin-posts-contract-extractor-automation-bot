@@ -51,9 +51,13 @@ def retry_on_failure(retries=3, delay=5):
 class ScraperModule:
     def __init__(self, browser_manager, metrics=None):
         self.browser_manager = browser_manager
-        self.driver = browser_manager.get_driver()
         self.processor = ProcessorModule()
         self.metrics = metrics
+
+    @property
+    def driver(self):
+        return self.browser_manager.get_driver()
+
 
     def validate_selectors(self):
         """
@@ -71,45 +75,72 @@ class ScraperModule:
 
         critical_checks = [
             ("Search Input", By.XPATH, config.SELECTORS['search']['global_input']),
+        ]
+        
+        # Optional/Contextual checks
+        secondary_checks = [
             ("Feed Post Container", By.XPATH, config.SELECTORS['post']['containers']),
         ]
         
-        missing = []
+        missing_critical = []
         for name, by, selectors in critical_checks:
             found = False
-            # Ensure selectors is a list
             if isinstance(selectors, str): selectors = [selectors]
-            
             for selector in selectors:
                 try:
-                    WebDriverWait(self.driver, 5).until( # Reduced timeout for fallbacks
+                    WebDriverWait(self.driver, 7).until(
                         EC.presence_of_element_located((by, selector))
                     )
                     logger.info(f"{name} found (using: {selector})", extra={"step_name": "Initialization"})
                     found = True
                     break
                 except: continue
-            
             if not found:
-                logger.error(f"{name} NOT found. Checked {len(selectors)} selector(s).", extra={"step_name": "Initialization"})
-                missing.append(name)
-        
-        if missing:
-            logger.critical(f"FATAL ERROR: The following critical UI elements were not found: {', '.join(missing)}", extra={"step_name": "Initialization"})
+                logger.error(f"CRITICAL: {name} NOT found. Checked {len(selectors)} selector(s).", extra={"step_name": "Initialization"})
+                missing_critical.append(name)
+
+        if missing_critical:
+            logger.critical(f"FATAL ERROR: The following critical UI elements were not found: {', '.join(missing_critical)}", extra={"step_name": "Initialization"})
             return False
             
-        logger.info("UI validation successful.", extra={"step_name": "Initialization"})
+        # Check secondary elements but don't fail yet (might be an empty feed)
+        for name, by, selectors in secondary_checks:
+            found = False
+            if isinstance(selectors, str): selectors = [selectors]
+            for selector in selectors:
+                try:
+                    WebDriverWait(self.driver, 3).until(
+                        EC.presence_of_element_located((by, selector))
+                    )
+                    logger.info(f"{name} found (using: {selector})", extra={"step_name": "Initialization"})
+                    found = True
+                    break
+                except: continue
+            if not found:
+                logger.warning(f"{name} not detected on current page. This is OK if the feed is empty or search has not started yet.", extra={"step_name": "Initialization"})
+                
+        logger.info("UI validation successful (Basic).", extra={"step_name": "Initialization"})
         return True
 
     def extract_post_id(self, post):
         """Extract unique post ID from LinkedIn post element."""
         try:
-            # 1. Direct attribute check (standard LinkedIn)
-            for attr in ['data-urn', 'data-activity-urn', 'data-id', 'componentkey']:
+            # 1. Direct attribute check (standard & new obfuscated LinkedIn)
+            # data-view-tracking-scope often contains the URN in a JSON string
+            for attr in ['data-urn', 'data-activity-urn', 'data-id', 'componentkey', 'data-view-tracking-scope']:
                 val = self.browser_manager.safe_get_attribute(post, attr)
-                if val: return val
+                if val:
+                    # Look for URN pattern: urn:li:activity:7xxxxxxxxxxxxxxxxx
+                    match = re.search(r'urn:li:activity:(\d+)', val)
+                    if match: return match.group(0)
+                    
+                    # Alternative URN formats
+                    match = re.search(r'urn:li:ugcPost:(\d+)', val)
+                    if match: return match.group(0)
+                    
+                    if val.startswith('urn:li:'): return val
                 
-            # 1b. Check children for componentkey
+            # 2. Check children for data-urn or componentkey
             try:
                 selectors = config.SELECTORS['post']['extract_id']['urn_component']
                 if isinstance(selectors, str): selectors = [selectors]
@@ -118,11 +149,15 @@ class ScraperModule:
                     try:
                         elems = post.find_elements(By.XPATH, xpath)
                         for elem in elems:
-                            for attr in ['componentkey', 'data-urn', 'data-activity-urn', 'data-id']:
+                            for attr in ['componentkey', 'data-urn', 'data-activity-urn', 'data-view-tracking-scope']:
                                 val = self.browser_manager.safe_get_attribute(elem, attr)
-                                if val: return val
+                                if val:
+                                    match = re.search(r'urn:li:(activity|ugcPost):(\d+)', val)
+                                    if match: return match.group(0)
+                                    if val.startswith('urn:li:'): return val
                     except: continue
             except: pass
+
 
             # 2. Check for the 'time' link or any link containing 'activity' or 'update'
             try:
@@ -269,17 +304,36 @@ class ScraperModule:
         )
         
         if not self.browser_manager.navigate(target_url):
-            return False
+            # If navigation failed, it might be because of a driver restart in navigate()
+            # Let's try to ensure login state if we are still on a login/null page
+            curr_url = self.browser_manager.get_current_url()
+            if "login" in curr_url or not curr_url or curr_url == "data:,":
+                logger.info("Session lost during search. Attempting re-login...", extra={"step_name": "Search"})
+                if self.browser_manager.login(config.LINKEDIN_EMAIL, config.LINKEDIN_PASSWORD):
+                    if not self.browser_manager.navigate(target_url):
+                        return False
+                else:
+                    return False
+            else:
+                return False
             
         self.browser_manager.human_mouse_move()
         time.sleep(random.uniform(4.0, 7.0))
         
         # Validate we are on the content tab
-        if '/search/results/content' not in self.browser_manager.get_current_url():
-             logger.warning("Redirection might have failed, attempting strict navigation again...", extra={"step_name": "Search"})
-             if not self.browser_manager.navigate(target_url): 
-                 return False
+        curr_url = self.browser_manager.get_current_url()
+        if '/search/results/content' not in curr_url:
+             if "login" in curr_url:
+                 logger.info("Redirected to login. Attempting re-login...", extra={"step_name": "Search"})
+                 self.browser_manager.login(config.LINKEDIN_EMAIL, config.LINKEDIN_PASSWORD)
+                 if not self.browser_manager.navigate(target_url):
+                     return False
+             else:
+                 logger.warning("Redirection might have failed, attempting strict navigation again...", extra={"step_name": "Search"})
+                 if not self.browser_manager.navigate(target_url): 
+                     return False
              time.sleep(5)
+
             
         return True
 
@@ -462,19 +516,32 @@ class ScraperModule:
     def _find_post_elements(self):
         """Internal helper to find posts on the page."""
         post_selectors = config.SELECTORS['post']['containers']
+        if isinstance(post_selectors, str): post_selectors = [post_selectors]
         
         all_found = []
         for selector in post_selectors:
             try:
                 found = self.driver.find_elements(By.XPATH, selector)
                 if found:
+                    count_added = 0
                     for p in found:
-                        if p.is_displayed() and p not in all_found:
-                            if p.text.strip():
+                        if p not in all_found:
+                            # Visually hidden posts (e.g. ad slots) might be skipped,
+                            # but we'll accept anything with at least some content or attributes
+                            is_vis = False
+                            try: is_vis = p.is_displayed()
+                            except: pass
+                            
+                            if is_vis:
                                 all_found.append(p)
+                                count_added += 1
+                    
+                    if count_added > 0:
+                        logger.debug(f"Selector {selector} found {count_added} new elements.")
             except: pass
             
         return all_found
+
 
     def find_post_by_id(self, target_id):
         """Re-find a specific post element on the current page by its ID/URN."""

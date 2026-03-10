@@ -28,8 +28,10 @@ class LinkedInPostsService:
         self.records_failed = 0
         self.total_seen = 0
         self.total_relevant = 0
-        self.total_saved = 0
-        self.total_synced = 0
+        self.total_saved = 0 # This will store contacts found
+        self.total_synced = 0 # This will store contacts synced
+        self.total_jobs_found = 0
+        self.total_jobs_synced = 0
 
     def run(self, candidate_id: Optional[int] = None, candidate_email: Optional[str] = None):
         """
@@ -84,17 +86,22 @@ class LinkedInPostsService:
                     
                     bot.run()
                     
-                    # Update local metrics
+                    # Update local metrics from Bot Phase (Collection)
                     self.total_seen += bot.total_seen
                     self.total_relevant += bot.total_relevant
-                    # total_saved in bot is contacts found
-                    self.total_saved += bot.total_saved
+                    # We skip bot.total_saved here as it's raw posts, 
+                    # we want the real contact counts from Phase 2.
                     
-                    # Sync data (offline extraction)
+                    # Sync data (offline extraction/Phase 2)
                     try:
                         extractor = DataExtractor(candidate_id=cand_id, candidate_email=email)
                         extraction_results = extractor.run()
+                        
+                        # Use results from Phase 2 for the final report
+                        self.total_saved += extraction_results.get('contacts_found', 0)
                         self.total_synced += extraction_results.get('contacts_synced', 0)
+                        self.total_jobs_found += extraction_results.get('positions_found', 0)
+                        self.total_jobs_synced += extraction_results.get('positions_synced', 0)
                     except Exception as e:
                         logger.error(f"Sync failed for {email}: {e}")
                     
@@ -116,6 +123,8 @@ class LinkedInPostsService:
                 "total_relevant": self.total_relevant,
                 "total_contacts_found": self.total_saved,
                 "total_contacts_synced": self.total_synced,
+                "total_jobs_found": self.total_jobs_found,
+                "total_jobs_synced": self.total_jobs_synced,
                 "candidates_processed": self.records_processed,
                 "candidates_failed": self.records_failed
             }

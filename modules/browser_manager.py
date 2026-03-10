@@ -83,11 +83,8 @@ class BrowserManager:
         # Try initializing driver
         try:
             if self.use_uc:
-                # Force specific version if provided in config
-                version = int(config.CHROME_VERSION) if config.CHROME_VERSION else None
-                
                 # use_subprocess=True helps with "cannot connect to chrome" errors on Windows
-                self.driver = uc.Chrome(options=chrome_options, version_main=version, use_subprocess=True)
+                self.driver = uc.Chrome(options=chrome_options, use_subprocess=True)
             else:
                 raise Exception("USE_UC is False, skipping to standard Selenium...")
                 
@@ -140,8 +137,10 @@ class BrowserManager:
 
     def navigate(self, url, retries=3, delay=5):
         """
-        Safe navigation wrapper with retry logic.
+        Safe navigation wrapper with retry logic and session recovery.
         """
+        from selenium.common.exceptions import InvalidSessionIdException
+        
         if not self.driver:
             logger.error("Driver not initialized.", extra={"step_name": "BrowserManager"})
             return False
@@ -152,8 +151,19 @@ class BrowserManager:
             try:
                 self.driver.get(url)
                 return True
-            except Exception as e:
+            except (InvalidSessionIdException, Exception) as e:
                 logger.warning(f"Navigation failed ({i+1}/{retries}): {e}", extra={"step_name": "BrowserManager"})
+                
+                # If session is invalid, try to restart driver
+                if isinstance(e, InvalidSessionIdException) or "invalid session id" in str(e).lower():
+                    logger.error("CRITICAL: Browser session lost. Attempting to restart driver...", extra={"step_name": "BrowserManager"})
+                    try:
+                        self.init_driver()
+                        # We don't automatically re-login here to avoid circular dependencies, 
+                        # but we return False so the caller (Orchestrator) knows navigation failed.
+                        # Wait, actually LinkedInBotComplete calls login() after navigate(FEED).
+                    except: pass
+                
                 time.sleep(delay)
         
         logger.error(f"Failed to navigate to {url} after {retries} attempts.", extra={"step_name": "BrowserManager"})
