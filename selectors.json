@@ -18,24 +18,35 @@
         ],
         "posts_tab_button": "//button[contains(., 'Posts')]",
         "sort_filter": {
-            "dropdown_button": "//button[contains(@aria-label, 'Sort by') or contains(., 'Sort by')]",
-            "option_latest": "//button[contains(., 'Recent') or contains(., 'Latest')]",
-            "option_relevance": "//button[contains(., 'Top') or contains(., 'Relevance')]",
-            "show_results_button": "//button[contains(@aria-label, 'Show results')]"
+            "dropdown_button": [
+                "//button[contains(@aria-label, 'Sort by') or contains(., 'Sort by')]",
+                "//div[@role='button'][contains(., 'Sort by')]",
+                "//div[@role='button'][contains(., 'Top') or contains(., 'Latest') or contains(., 'Recent')]"
+            ],
+            "option_latest": [
+                "//button[contains(., 'Recent') or contains(., 'Latest')]",
+                "//div[@role='button'][contains(., 'Recent') or contains(., 'Latest')]",
+                "//label[contains(., 'Recent') or contains(., 'Latest')]"
+            ],
+            "option_relevance": [
+                "//button[contains(., 'Top') or contains(., 'Relevance')]",
+                "//div[@role='button'][contains(., 'Top') or contains(., 'Relevance')]",
+                "//label[contains(., 'Top') or contains(., 'Relevance')]"
+            ],
+            "show_results_button": "//button[contains(@aria-label, 'Show results') or contains(., 'Show results')]"
         }
     },
     "post": {
         "containers": [
             "//div[contains(@class, 'feed-shared-update-v2')]",
-            "//div[@data-view-name='feed-full-update']",
-            "//div[contains(@class, 'reusable-search__result-container')]",
-            "//li[contains(@class, 'reusable-search__result-container')]",
-            "//div[contains(@id, 'ember') and contains(@class, 'search-results__list-item')]",
-            "//*[contains(@data-view-name, 'feed-commentary')]/ancestor::div[contains(@class, 'update-v2')]",
-            "//*[contains(@data-testid, 'expandable-text-box')]/ancestor::div[contains(@class, 'update-v2')]",
             "//div[contains(@class, 'feed-shared-update-v3')]",
-            "//div[contains(@class, 'card-container')]",
-            "//div[contains(@data-id, 'urn:li:activity')]"
+            "//div[@role='listitem']",
+            "//div[contains(@class, 'scaffold-layout__main')]//div[@role='listitem']",
+            "//div[contains(@class, 'scaffold-layout__main')]//div[@data-view-tracking-scope]",
+            "//div[contains(@class, 'reusable-search__result-container')]",
+            "//div[contains(@data-urn, 'urn:li:activity')]",
+            "//div[contains(@class, 'scaffold-layout__main')]//article",
+            "//div[contains(@class, 'scaffold-layout__main')]//div[contains(@data-urn, 'urn:li:activity')]"
         ],
         "extract_id": {
             "urn_component": ".//div[@data-urn]",
@@ -72,17 +83,18 @@
             ".//span[@aria-hidden='true']",
             ".//span[contains(@class, 'update-components-actor__name')]",
             ".//span[contains(@class, 'entity-result__title-text')]",
-            ".//div[contains(@class, 't-black')]//span",
+            ".//a[contains(@href, '/in/')]//span",
+            ".//a[contains(@href, '/in/')]//p",
             ".//div[contains(@class, 'actor')]//span",
-            ".//p[contains(@class, 'actor')]//span",
-            ".//a[contains(@href, '/in/')]//span"
+            ".//p[contains(@class, 'actor')]//span"
         ],
         "author_headline": [
             ".//span[contains(@class, 'update-components-actor__description')]",
             ".//div[contains(@class, 'entity-result__primary-subtitle')]",
-            ".//p[contains(@class, 't-12')]",
             ".//div[contains(@class, 'update-components-text-view')]",
-            ".//p[contains(@class, 'feed-shared-actor__description')]"
+            ".//p[contains(@class, 't-12')]",
+            ".//p[contains(@class, 'feed-shared-actor__description')]",
+            ".//div[contains(@class, 'actor')]//p"
         ],
         "content_text": [
             ".//p[@data-view-name='feed-commentary']//span[@data-testid='expandable-text-box']",

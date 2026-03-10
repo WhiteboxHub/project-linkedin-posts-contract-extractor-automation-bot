@@ -245,7 +245,8 @@ class LinkedInBotComplete:
             
             
             logger.info("Collection complete. Post-processing will handle extraction and syncing.", extra={"step_name": "Shutdown"})
-            logger.info(f"Metrics: {self.posts_saved} posts saved, {self.total_saved} contacts extracted", extra={"step_name": "Shutdown"})
+            logger.info(f"Metrics: {self.posts_saved} raw posts saved, {self.total_saved} relevant posts identified", extra={"step_name": "Shutdown"})
+
             logger.info(f"Storage: {self.storage_manager.posts_dir}/", extra={"step_name": "Shutdown"})
 
            
@@ -346,7 +347,7 @@ if __name__ == "__main__":
                                 "email": cand.get('linkedin_email'),
                                 "seen": bot.total_seen,
                                 "relevant": bot.total_relevant,
-                                "saved": bot.total_saved,
+                                "saved": extraction_results.get('contacts_found', 0), # Corrected from bot.total_saved (raw posts)
                                 "synced": extraction_results.get('contacts_synced', 0),
                                 "positions_found": extraction_results.get('positions_found', 0),
                                 "positions_synced": extraction_results.get('positions_synced', 0),
@@ -412,7 +413,7 @@ if __name__ == "__main__":
             "email": bot.linkedin_email,
             "seen": bot.total_seen,
             "relevant": bot.total_relevant,
-            "saved": bot.total_saved,
+            "saved": extraction_results.get('contacts_found', 0), # Corrected from bot.total_saved (raw posts)
             "synced": extraction_results.get('contacts_synced', 0),
             "positions_found": extraction_results.get('positions_found', 0),
             "positions_synced": extraction_results.get('positions_synced', 0),
