@@ -213,7 +213,7 @@ class LinkedInBotComplete:
                 logger.info(f"Logging activity for Candidate ID: {cand_id}", extra={"step_name": "Startup"})
             
             if not self.load_keywords():
-                return
+                return False
             
             self.init_driver()
             
@@ -222,12 +222,12 @@ class LinkedInBotComplete:
             self.browser_manager.navigate(config.URLS['FEED'])
             if not self.browser_manager.login(self.linkedin_email, self.linkedin_password):
                 logger.critical("Login failed!", extra={"step_name": "Login"})
-                return
+                return False
 
             
             if not self.scraper.validate_selectors():
                 logger.critical("Aborting: UI does not match expected selectors.", extra={"step_name": "Startup"})
-                return
+                return False
 
             for idx, keyword in enumerate(self.keywords, 1):
                 if self.total_saved >= config.MAX_CONTACTS_PER_RUN:
@@ -251,14 +251,16 @@ class LinkedInBotComplete:
 
            
             logger.info(f"Scan complete. {self.posts_saved} posts cached. Finalizing extraction...", extra={"step_name": "Shutdown"})
-            
+            return True
         except KeyboardInterrupt:
             logger.warning(f"STOPPED by user. Cached: {self.posts_saved}", extra={"step_name": "Shutdown"})
+            return False
         except Exception as e:
             logger.critical(f"FATAL ERROR: {e}", extra={"step_name": "Orchestrator"}, exc_info=True)
             if self.total_saved > 0:
                 notes = f"CRASH: LinkedIn extraction failed: {str(e)}. {self.total_saved} found before crash.\n"
                 self.activity_logger.log_activity(self.total_saved, notes=notes)
+            return False
         
         finally:
             self.browser_manager.quit()
