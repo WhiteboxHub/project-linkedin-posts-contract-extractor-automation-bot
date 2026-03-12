@@ -1,6 +1,8 @@
 import logging
 import traceback
+import json
 from typing import Dict, Any, Optional
+import config as bot_config
 from main import LinkedInBotComplete
 from modules.data_extractor import DataExtractor
 
@@ -52,26 +54,41 @@ class LinkedInPostsService:
                 )
                 return
 
-            logger.info(f"Processing {len(candidates)} candidates for LinkedIn Posts Extraction.")
-            
-            # 2. Iterate and process
-            for idx, cand in enumerate(candidates, 1):
+            # 2. Load Keywords for distribution
+            all_keywords = []
+            try:
+                with open(bot_config.KEYWORDS_FILE, 'r', encoding='utf-8') as f:
+                    all_keywords = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load keywords from {bot_config.KEYWORDS_FILE}: {e}")
+                all_keywords = ["Information Technology"]
+
+            num_keywords = len(all_keywords)
+            num_cands = len(candidates)
+            logger.info(f"Goal: complete {num_keywords} keywords using {num_cands} available candidates.")
+
+            # 3. Iterate through EVERY keyword and assign a candidate (Round-Robin)
+            for idx, keyword in enumerate(all_keywords):
+                # Pick candidate in a round-robin fashion
+                cand = candidates[idx % num_cands]
+                
                 try:
-                    logger.info(f"[{idx}/{len(candidates)}] Processing Candidate: {cand.get('email')}")
+                    display_email = cand.get('email') or cand.get('linkedin_email')
+                    logger.info(f"[{idx+1}/{num_keywords}] Keyword: '{keyword}' assigned to Profile: {display_email}")
                     
                     # standardize keys for LinkedInBotComplete
-                    email = cand.get('email')
-                    password = cand.get('linkedin_password', cand.get('password'))
+                    email = cand.get('email') or cand.get('linkedin_email')
+                    password = cand.get('linkedin_password') or cand.get('password')
                     cand_id = cand.get('candidate_id')
+                    
                     # Default to a unique profile name based on candidate_id if not provided
                     chrome_profile = cand.get('chrome_profile') or f"Profile_{cand_id}"
                     
-                    # Keywords determination logic (similar to main.py but can be enhanced via parameters)
-                    # For now, let's just use what's in runtime_parameters if available, otherwise keywords.json
-                    keywords = self.runtime_parameters.get("keywords")
+                    # Each step processes exactly ONE keyword
+                    keywords = [keyword]
                     
                     if not email or not password:
-                        logger.error(f"Skipping candidate {email}: missing credentials.")
+                        logger.error(f"Skipping keyword '{keyword}': candidate {email if email else 'Unknown'} missing credentials.")
                         self.records_failed += 1
                         continue
 
@@ -89,15 +106,12 @@ class LinkedInPostsService:
                     # Update local metrics from Bot Phase (Collection)
                     self.total_seen += bot.total_seen
                     self.total_relevant += bot.total_relevant
-                    # We skip bot.total_saved here as it's raw posts, 
-                    # we want the real contact counts from Phase 2.
                     
                     # Sync data (offline extraction/Phase 2)
                     try:
                         extractor = DataExtractor(candidate_id=cand_id, candidate_email=email)
                         extraction_results = extractor.run()
                         
-                        # Use results from Phase 2 for the final report
                         self.total_saved += extraction_results.get('contacts_found', 0)
                         self.total_synced += extraction_results.get('contacts_synced', 0)
                         self.total_jobs_found += extraction_results.get('positions_found', 0)
@@ -107,10 +121,20 @@ class LinkedInPostsService:
                     
                     self.records_processed += 1
                     
+                    # Small cooling period between keywords if reusing profiles
+                    if idx < num_keywords - 1:
+                        import time
+                        import random
+                        wait = random.randint(5, 10)
+                        logger.info(f"Waiting {wait}s before next keyword...")
+                        time.sleep(wait)
+
                 except Exception as e:
-                    logger.error(f"Failed to process candidate {cand.get('email')}: {e}")
+                    logger.error(f"Failed to process keyword '{keyword}' with candidate {display_email}: {e}")
                     logger.error(traceback.format_exc())
                     self.records_failed += 1
+
+            logger.info(f"Success: All {num_keywords} keywords processed. Workflow exiting.")
 
             # 3. Final Report/Status Update
             status = 'success'
