@@ -332,16 +332,17 @@ class JobActivityLogger:
             response = requests.post(endpoint, json=payload, headers=self.headers)
             response.raise_for_status()
             result = response.json()
-            print(f" Activity logged: {activity_count} contacts (Activity ID: {result.get('id', 'N/A')})")
+            logger.info(f"Activity logged: {activity_count} contacts (Activity ID: {result.get('id', 'N/A')})", extra={"step_name": "Logging"})
             return True
         except requests.exceptions.RequestException as e:
-            print(f" Failed to log activity: {e}")
+            msg = f"Failed to log activity: {e}"
             if hasattr(e, 'response') and e.response is not None:
                 try:
                     error_detail = e.response.json()
-                    print(f"   Error details: {error_detail}")
+                    msg += f" | Details: {error_detail}"
                 except:
-                    print(f"   Response: {e.response.text}")
+                    msg += f" | Response: {e.response.text}"
+            logger.error(msg, extra={"step_name": "Logging"})
             return False
     
     def _get_job_type_id(self) -> Optional[int]:
