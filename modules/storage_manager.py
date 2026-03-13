@@ -151,7 +151,8 @@ class StorageManager:
                 "extraction_date": datetime.now().strftime('%Y-%m-%d'),
                 "search_keyword": keyword,
                 "candidate_id": self.candidate_id,
-                "candidate_email": self.candidate_email
+                "candidate_email": self.candidate_email,
+                "job_link_url": metadata.get('job_link_url', '') if metadata else ''
             }
             
             # Append to posts array

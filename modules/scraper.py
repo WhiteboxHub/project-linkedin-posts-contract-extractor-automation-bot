@@ -561,6 +561,7 @@ class ScraperModule:
         data = {
             'name': '', 'email': '', 'phone': '', 'post_text': '',
             'profile_url': '', 'company': '', 'location': '', 'post_url': '',
+            'job_link_url': '',
             'is_relevant': False, 'has_job': False, 'post_html': ''
         }
         
@@ -725,6 +726,25 @@ class ScraperModule:
                  data['post_url'] = f"https://www.linkedin.com/feed/update/urn:li:activity:{post_id}"
             elif len(post_id) > 15: # GUID or hash
                  data['post_url'] = f"https://www.linkedin.com/feed/update/{post_id}"
+
+        # [NEW] Job Link URL Extraction (Direct Job Postings)
+        try:
+            job_link_selectors = [
+                ".//a[contains(@href, 'linkedin.com/jobs/view/')]",
+                ".//a[contains(@href, 'linkedin.com/jobs/')]"
+            ]
+            for sel in job_link_selectors:
+                try:
+                    job_link_elem = post.find_element(By.XPATH, sel)
+                    job_url = self.browser_manager.safe_get_attribute(job_link_elem, 'href')
+                    if job_url:
+                        if '?' in job_url:
+                            job_url = job_url.split('?')[0]
+                        data['job_link_url'] = job_url
+                        logger.info(f"Captured job link: {job_url}", extra={"step_name": "Post Extraction"})
+                        break
+                except: continue
+        except: pass
 
         return data
 

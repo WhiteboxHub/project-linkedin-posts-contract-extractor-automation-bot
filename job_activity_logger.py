@@ -177,7 +177,7 @@ class JobActivityLogger:
                 "linkedin_id": data.get('linkedin_id') or data.get('author_linkedin_id'),
                 "linkedin_internal_id": data.get('linkedin_internal_id'),
                 "source_type": effective_source_type,
-                "source_reference": data.get('post_id') or data.get('source_reference'),
+                "source_reference": data.get('post_url') or data.get('post_id') or data.get('source_reference'),
                 "raw_payload": data
             })
             
@@ -254,7 +254,7 @@ class JobActivityLogger:
                 "raw_zip": job.get('raw_zip', ''),
                 "raw_description": job.get('post_text_preview', ''),
                 "raw_contact_info": f"Email: {job.get('contact_email')}, Phone: {job.get('contact_phone')}",
-                "raw_notes": f"Score: {job.get('job_score')}, Matches: {job.get('job_matches')}, URL: {job.get('post_url')}, Keyword: {job.get('source_keyword')}",
+                "raw_notes": f"Score: {job.get('job_score')}, Matches: {job.get('job_matches')}, URL: {job.get('post_url')}, Job URL: {job.get('job_link_url')}, Keyword: {job.get('source_keyword')}",
                 "raw_payload": job,
                 "processing_status": "new"
             })
