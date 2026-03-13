@@ -21,21 +21,9 @@ class BotReporter:
             self.email_to = [email.strip() for email in config.EMAIL_TO.split(',')]
         else:
             self.email_to = []
-        
+    
     def _is_configured(self):
-        config_values = {
-            "server": self.server,
-            "port": self.port,
-            "username": self.username,
-            "password": "set" if self.password else None,
-            "from": self.email_from,
-            "to": self.email_to
-        }
-        missing = [k for k, v in config_values.items() if not v]
-        if missing:
-            logger.info(f"SMTP configuration missing: {', '.join(missing)} - Reporting will be skipped.", extra={"step_name": "BotReporter"})
-            return False
-        return True
+        return all([self.server, self.port, self.username, self.password, self.email_from, self.email_to])
     
     def send_run_report(self):
         try:
@@ -183,19 +171,7 @@ class ConsolidatedBotReporter:
             self.email_to = []
 
     def _is_configured(self):
-        config_values = {
-            "server": self.server,
-            "port": self.port,
-            "username": self.username,
-            "password": "set" if self.password else None,
-            "from": self.email_from,
-            "to": self.email_to
-        }
-        missing = [k for k, v in config_values.items() if not v]
-        if missing:
-            logger.info(f"SMTP consolidated configuration missing: {', '.join(missing)} - Reporting will be skipped.", extra={"step_name": "ConsolidatedBotReporter"})
-            return False
-        return True
+        return all([self.server, self.port, self.username, self.password, self.email_from, self.email_to])
 
     def send_consolidated_report(self):
         try:

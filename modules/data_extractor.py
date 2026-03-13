@@ -184,8 +184,6 @@ class DataExtractor:
                             post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
                         elif post_id.isdigit():
                             post_url = f"https://www.linkedin.com/feed/update/urn:li:activity:{post_id}/"
-                        elif len(post_id) >= 15: # Support for hashes or GUIDs
-                            post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
                        
                 
                 # Extract internal ID from profile URL (e.g. "john-doe" or "ACoAA...")
@@ -225,8 +223,7 @@ class DataExtractor:
                         post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
                     elif post_id.isdigit():
                         post_url = f"https://www.linkedin.com/feed/update/urn:li:activity:{post_id}/"
-                    elif len(post_id) >= 15: # Support for hashes or GUIDs
-                        post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
+                    # Explicitly DO NOT construct URL if it's a hash or unknown format
 
                 job_info = {
                     "post_id": post.get('post_id'),
@@ -246,8 +243,7 @@ class DataExtractor:
                     # Include contact info if available, even if redundant
                     "contact_email": emails[0] if emails else "",
                     "contact_phone": primary_phone,
-                    "post_text_preview": post_text[:500].replace('\n', ' '),
-                    "job_link_url": post.get('job_link_url', '')
+                    "post_text_preview": post_text[:500].replace('\n', ' ') 
                 }
 
         return contacts, job_info
@@ -288,7 +284,7 @@ class DataExtractor:
             
         # CSV
         keys = [
-            "post_id", "post_url", "job_link_url", "author_name", "linkedin_id", "source_keyword", 
+            "post_id", "post_url", "author_name", "linkedin_id", "source_keyword", 
             "extraction_date", "job_score", "job_matches", "contract_type", "contact_email", "contact_phone", "post_text_preview"
         ]
         
