@@ -34,6 +34,7 @@ class LinkedInPostsService:
         self.total_synced = 0 # This will store contacts synced
         self.total_jobs_found = 0
         self.total_jobs_synced = 0
+        self.all_iteration_results = []
 
     def run(self, candidate_id: Optional[int] = None, candidate_email: Optional[str] = None):
         """
@@ -71,97 +72,103 @@ class LinkedInPostsService:
             failed_profiles = set()
             cand_idx = 0
 
-            # 3. Iterate through EVERY keyword and ensure it is attempted
-            for k_idx, keyword in enumerate(all_keywords):
-                keyword_success = False
-                attempts_for_this_keyword = 0
+            # 3. Iterate through EVERY candidate and EVERY keyword to ensure full coverage
+            # We use max(num_keywords, num_cands) to ensure every profile is used AND every keyword is attempted.
+            num_iterations = max(num_keywords, num_cands)
+            logger.info(f"Will run {num_iterations} iterations to cover both keywords and candidates.")
+
+            # Set of emails that failed login (blacklist for this run)
+            failed_profiles = set()
+
+            for i in range(num_iterations):
+                keyword = all_keywords[i % num_keywords]
+                cand = candidates[i % num_cands]
                 
-                # We try up to 'num_cands' candidates for a single keyword if they keep failing
-                while not keyword_success and attempts_for_this_keyword < num_cands:
-                    cand = candidates[cand_idx % num_cands]
-                    display_email = cand.get('email') or cand.get('linkedin_email')
-                    
-                    if display_email in failed_profiles:
-                        logger.info(f"Skipping profile {display_email} (already failed in this run).")
-                        cand_idx += 1
-                        attempts_for_this_keyword += 1
-                        continue
+                display_email = cand.get('email') or cand.get('linkedin_email')
+                cand_id = cand.get('candidate_id')
+                
+                if display_email in failed_profiles:
+                    logger.info(f"Skipping profile {display_email} (already failed in this run).")
+                    continue
 
-                    logger.info(f"[{k_idx+1}/{num_keywords}] Keyword: '{keyword}' attempt using Profile: {display_email}")
-                    
-                    # standardize keys for LinkedInBotComplete
-                    email = cand.get('email') or cand.get('linkedin_email')
-                    password = cand.get('linkedin_password') or cand.get('password')
-                    cand_id = cand.get('candidate_id')
-                    chrome_profile = cand.get('chrome_profile') or f"Profile_{cand_id}"
-                    
-                    if not email or not password:
-                        logger.error(f"Candidate {display_email} missing credentials. Trying next profile...")
-                        failed_profiles.add(display_email)
-                        cand_idx += 1
-                        attempts_for_this_keyword += 1
-                        continue
+                logger.info(f"[{i+1}/{num_iterations}] Iteration - Keyword: '{keyword}', Profile: {display_email} (ID: {cand_id})")
+                
+                # standardize keys for LinkedInBotComplete
+                email = cand.get('email') or cand.get('linkedin_email')
+                password = cand.get('linkedin_password') or cand.get('password')
+                chrome_profile = cand.get('chrome_profile') or f"Profile_{cand_id}"
+                
+                if not email or not password:
+                    logger.error(f"Candidate {display_email} missing credentials. Skipping...")
+                    failed_profiles.add(display_email)
+                    continue
 
+                try:
+                    # Execute Bot
+                    bot = LinkedInBotComplete(
+                        email=email,
+                        password=password,
+                        candidate_id=cand_id,
+                        keywords=[keyword],
+                        chrome_profile=chrome_profile
+                    )
+                    
+                    # bot.run() returns True if it completed successfully
+                    success = bot.run()
+                    
+                    # Update local metrics from Bot Phase (Collection)
+                    self.total_seen += bot.total_seen
+                    self.total_relevant += bot.total_relevant
+                    
+                    # Sync data (offline extraction/Phase 2) 
+                    # We run this even if success is False to ensure activity logging (Phase 2 logs identified contacts)
                     try:
-                        # Execute Bot
-                        bot = LinkedInBotComplete(
-                            email=email,
-                            password=password,
-                            candidate_id=cand_id,
-                            keywords=[keyword],
-                            chrome_profile=chrome_profile
-                        )
+                        logger.info(f"Starting Data Extraction/Sync for {email} (Phase 2)...")
+                        extractor = DataExtractor(candidate_id=cand_id, candidate_email=email)
+                        extraction_results = extractor.run()
                         
-                        # bot.run() now returns True if it completed successfully
-                        success = bot.run()
+                        self.total_saved += extraction_results.get('contacts_found', 0)
+                        self.total_synced += extraction_results.get('contacts_synced', 0)
+                        self.total_jobs_found += extraction_results.get('positions_found', 0)
+                        self.total_jobs_synced += extraction_results.get('positions_synced', 0)
                         
-                        # Update local metrics from Bot Phase (Collection)
-                        self.total_seen += bot.total_seen
-                        self.total_relevant += bot.total_relevant
-                        
-                        if success:
-                            # Sync data (offline extraction/Phase 2)
-                            try:
-                                extractor = DataExtractor(candidate_id=cand_id, candidate_email=email)
-                                extraction_results = extractor.run()
-                                
-                                self.total_saved += extraction_results.get('contacts_found', 0)
-                                self.total_synced += extraction_results.get('contacts_synced', 0)
-                                self.total_jobs_found += extraction_results.get('positions_found', 0)
-                                self.total_jobs_synced += extraction_results.get('positions_synced', 0)
-                            except Exception as e:
-                                logger.error(f"Sync failed for {email}: {e}")
-                            
-                            self.records_processed += 1
-                            keyword_success = True
-                            # Move to next profile for next keyword automatically
-                            cand_idx += 1
-                            
-                            # Small cooling period between keywords
-                            if k_idx < num_keywords - 1:
-                                import time, random
-                                wait = random.randint(5, 10)
-                                logger.info(f"Waiting {wait}s before next keyword...")
-                                time.sleep(wait)
-                        else:
-                            logger.error(f"Bot failed for profile {display_email}. Blacklisting and trying next available profile for keyword '{keyword}'...")
-                            failed_profiles.add(display_email)
-                            self.records_failed += 1
-                            cand_idx += 1
-                            attempts_for_this_keyword += 1
-
+                        # Collect results for consolidated report
+                        self.all_iteration_results.append({
+                            "candidate_id": cand_id,
+                            "email": email,
+                            "seen": bot.total_seen,
+                            "relevant": bot.total_relevant,
+                            "saved": extraction_results.get('contacts_found', 0),
+                            "synced": extraction_results.get('contacts_synced', 0),
+                            "positions_found": extraction_results.get('positions_found', 0),
+                            "positions_synced": extraction_results.get('positions_synced', 0),
+                            "posts_disk": bot.posts_saved,
+                            "keywords": keyword
+                        })
                     except Exception as e:
-                        logger.error(f"Error processing keyword '{keyword}' with candidate {display_email}: {e}")
-                        logger.info(traceback.format_exc())
+                        logger.error(f"Sync failed for {email}: {e}")
+                    
+                    if success:
+                        self.records_processed += 1
+                    else:
+                        logger.error(f"Bot failed/incomplete for profile {display_email}.")
                         failed_profiles.add(display_email)
                         self.records_failed += 1
-                        cand_idx += 1
-                        attempts_for_this_keyword += 1
 
-                if not keyword_success:
-                    logger.critical(f"Keyword '{keyword}' failed after trying all available valid candidates.")
+                    # Small cooling period between iterations
+                    if i < num_iterations - 1:
+                        import time, random
+                        wait = random.randint(10, 20)
+                        logger.info(f"Waiting {wait}s before next iteration...")
+                        time.sleep(wait)
 
-            logger.info(f"Finished: keyword processing phase complete.")
+                except Exception as e:
+                    logger.error(f"Error processing iteration {i+1} with candidate {display_email}: {e}")
+                    logger.info(traceback.format_exc())
+                    failed_profiles.add(display_email)
+                    self.records_failed += 1
+
+            logger.info(f"Finished: keyword/candidate processing phase complete.")
 
             # 3. Final Report/Status Update
             status = 'success'
@@ -187,6 +194,16 @@ class LinkedInPostsService:
                 records_failed=self.records_failed,
                 execution_metadata=execution_metadata
             )
+
+            # Send consolidated email report
+            if self.all_iteration_results:
+                try:
+                    from modules.bot_reporter import ConsolidatedBotReporter
+                    logger.info("Sending consolidated run report to email...")
+                    reporter = ConsolidatedBotReporter(self.all_iteration_results)
+                    reporter.send_consolidated_report()
+                except Exception as e:
+                    logger.error(f"Failed to send email report: {e}")
             
             logger.info(f"Workflow execution finished with status: {status}")
 
