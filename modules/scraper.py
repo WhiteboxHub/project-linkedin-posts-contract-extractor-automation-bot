@@ -721,11 +721,18 @@ class ScraperModule:
         if not data.get('post_url') and post_id:
             # Construct standard LinkedIn post URL if it looks like a URN or valid ID
             if 'urn:li:activity:' in post_id:
-                data['post_url'] = f"https://www.linkedin.com/feed/update/{post_id}"
+                data['post_url'] = f"https://www.linkedin.com/feed/update/{post_id}/"
             elif post_id.isdigit():
-                 data['post_url'] = f"https://www.linkedin.com/feed/update/urn:li:activity:{post_id}"
+                 data['post_url'] = f"https://www.linkedin.com/feed/update/urn:li:activity:{post_id}/"
+            elif len(post_id) == 32 and all(c in '0123456789abcdefABCDEFxyz' for c in post_id): 
+                 # Ignore creating URL from our internal MD5 fallback ID
+                 pass
             elif len(post_id) > 15: # GUID or hash
-                 data['post_url'] = f"https://www.linkedin.com/feed/update/{post_id}"
+                 data['post_url'] = f"https://www.linkedin.com/feed/update/{post_id}/"
+
+        # Fallback to direct extraction if still no URL
+        if not data.get('post_url'):
+            data['post_url'] = self.extract_post_url(post)
 
         # [NEW] Job Link URL Extraction (Direct Job Postings)
         try:

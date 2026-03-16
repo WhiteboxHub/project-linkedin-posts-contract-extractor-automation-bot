@@ -184,6 +184,8 @@ class DataExtractor:
                             post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
                         elif post_id.isdigit():
                             post_url = f"https://www.linkedin.com/feed/update/urn:li:activity:{post_id}/"
+                        elif len(post_id) == 32 and all(c in '0123456789abcdefABCDEFxyz' for c in post_id): 
+                            post_url = ""
                         elif len(post_id) >= 15: # Support for hashes or GUIDs
                             post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
                        
@@ -225,6 +227,8 @@ class DataExtractor:
                         post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
                     elif post_id.isdigit():
                         post_url = f"https://www.linkedin.com/feed/update/urn:li:activity:{post_id}/"
+                    elif len(post_id) == 32 and all(c in '0123456789abcdefABCDEFxyz' for c in post_id): 
+                        post_url = ""
                     elif len(post_id) >= 15: # Support for hashes or GUIDs
                         post_url = f"https://www.linkedin.com/feed/update/{post_id}/"
 
