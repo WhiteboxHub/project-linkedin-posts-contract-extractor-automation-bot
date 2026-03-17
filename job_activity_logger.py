@@ -246,7 +246,7 @@ class JobActivityLogger:
             positions_payload.append({
                 "candidate_id": job.get('candidate_id') or (self.selected_candidate_id if self.selected_candidate_id != 0 else None),
                 "source": self.job_unique_id, # Source is the Bot ID
-                "source_uid": job.get('post_id'), # Unique ID within the source (Bot)
+                "source_uid": job.get('post_url') or job.get('post_id'), # Same mapping as automated contacts
                 "extractor_version": "v1.0",
                 "raw_title": job.get('job_title', 'Unknown Role'),
                 "raw_company": job.get('company') or job.get('author_name', 'Unknown Company'),
@@ -283,6 +283,62 @@ class JobActivityLogger:
         except Exception as e:
             if not isinstance(e, requests.exceptions.HTTPError):
                 print(f"  [ERROR] Bulk raw positions sync failed: {e}")
+            return None
+
+    def bulk_save_email_positions(self, jobs_list: list) -> bool:
+        """Sync identified job posts with extracted emails to the email_positions table in the backend."""
+        self._ensure_valid_token()
+        if not self.api_token or not jobs_list:
+            return False
+            
+        if '/api' in self.api_url:
+            base_url = self.api_url.rstrip('/')
+        else:
+            base_url = f"{self.api_url.rstrip('/')}/api"
+            
+        endpoint = f"{base_url}/email-positions/bulk"
+        
+        positions_payload = []
+        for job in jobs_list:
+            positions_payload.append({
+                "candidate_id": job.get('candidate_id') or (self.selected_candidate_id if self.selected_candidate_id != 0 else None),
+                "source": self.job_unique_id, # Source is the Bot ID
+                "source_uid": job.get('post_url') or job.get('post_id'), 
+                "extractor_version": "v1.0",
+                "title": job.get('job_title', 'Unknown Role'),
+                "company": job.get('company') or job.get('author_name', 'Unknown Company'),
+                "location": job.get('location', ''), 
+                "zip": job.get('raw_zip', ''),
+                "description": job.get('post_text_preview', ''),
+                "contact_info": f"Email: {job.get('contact_email')}, Phone: {job.get('contact_phone')}",
+                "notes": f"Score: {job.get('job_score')}, Matches: {job.get('job_matches')}, URL: {job.get('post_url')}, Job URL: {job.get('job_link_url')}, Keyword: {job.get('source_keyword')}",
+                "payload": job
+            })
+            
+        if not positions_payload:
+            return True
+            
+        payload = {"positions": positions_payload}
+        
+        try:
+            response = requests.post(endpoint, json=payload, headers=self.headers)
+            if response.status_code != 200:
+                print(f"  [ERROR] Bulk email positions sync failed with status {response.status_code}")
+                try:
+                    error_json = response.json()
+                    print(f"  [ERROR] Details: {error_json.get('detail', response.text)}")
+                except:
+                    print(f"  [ERROR] Details: {response.text}")
+                    
+            response.raise_for_status()
+            result = response.json()
+            inserted = result.get('inserted', 0)
+            skipped = result.get('skipped', 0)
+            print(f"  [SUMMARY] Email positions sync: {inserted} inserted, {skipped} skipped.")
+            return result
+        except Exception as e:
+            if not isinstance(e, requests.exceptions.HTTPError):
+                print(f"  [ERROR] Bulk email positions sync failed: {e}")
             return None
 
 

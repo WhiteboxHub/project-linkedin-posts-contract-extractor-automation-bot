@@ -244,6 +244,7 @@ class ConsolidatedBotReporter:
             total_synced = sum(r.get('synced', 0) for r in self.results)
             total_positions_found = sum(r.get('positions_found', 0) for r in self.results)
             total_positions_synced = sum(r.get('positions_synced', 0) for r in self.results)
+            total_email_positions_synced = sum(r.get('email_positions_synced', 0) for r in self.results)
 
             summary_rows = ""
             for r in self.results:
@@ -258,6 +259,7 @@ class ConsolidatedBotReporter:
                     <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('synced', 0)}</td>
                     <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('positions_found', 0)}</td>
                     <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('positions_synced', 0)}</td>
+                    <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('email_positions_synced', 0)}</td>
                 </tr>
                 """
 
@@ -294,8 +296,12 @@ class ConsolidatedBotReporter:
                         <td style="padding: 10px; border: 1px solid #ddd;">{total_positions_found}</td>
                     </tr>
                     <tr style="background-color: #f8f9fa;">
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Jobs Synced</th>
+                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Jobs Synced (Raw)</th>
                         <td style="padding: 10px; border: 1px solid #ddd;">{total_positions_synced}</td>
+                    </tr>
+                    <tr>
+                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Jobs Synced (Email)</th>
+                        <td style="padding: 10px; border: 1px solid #ddd;">{total_email_positions_synced}</td>
                     </tr>
                 </table>
 
@@ -311,20 +317,21 @@ class ConsolidatedBotReporter:
                         <th style="padding: 10px; border: 1px solid #ddd;">Contacts Found</th>
                         <th style="padding: 10px; border: 1px solid #ddd;">Synced</th>
                         <th style="padding: 10px; border: 1px solid #ddd;">Jobs Found</th>
-                        <th style="padding: 10px; border: 1px solid #ddd;">Jobs Synced</th>
+                        <th style="padding: 10px; border: 1px solid #ddd;">Raw Synced</th>
+                        <th style="padding: 10px; border: 1px solid #ddd;">Email Synced</th>
                     </tr>
                     {summary_rows}
                 </table>
 
 
                 <p style="margin-top: 30px; font-size: 0.85em; color: #7f8c8d;">
-                    <em>This is an automated consolidated report from the LinkedIn Posts Bot.</em>
+                    <em>This is an automated report from the LinkedIn Posts Bot.</em>
                 </p>
             </body>
             </html>
             """
             
-            subject = f"LinkedIn Bot Consolidated Report - {total_runs} Runs - {datetime.now().strftime('%Y-%m-%d')}"
+            subject = f"LinkedIn Posts Contract Extractor Bot Report - {total_runs} Runs - {datetime.now().strftime('%Y-%m-%d')}"
             return subject, html_body
         except Exception as e:
             logger.error(f"Error generating consolidated HTML: {e}", extra={"step_name": "ConsolidatedBotReporter"})

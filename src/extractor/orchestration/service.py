@@ -9,10 +9,6 @@ from modules.data_extractor import DataExtractor
 logger = logging.getLogger(__name__)
 
 class LinkedInPostsService:
-    """
-    Orchestration service for LinkedIn Posts Extraction.
-    Wraps LinkedInBotComplete and manages workflow-level reporting/tracking.
-    """
     def __init__(self, 
                  candidate_source, 
                  workflow_manager, 
@@ -30,8 +26,8 @@ class LinkedInPostsService:
         self.records_failed = 0
         self.total_seen = 0
         self.total_relevant = 0
-        self.total_saved = 0 # This will store contacts found
-        self.total_synced = 0 # This will store contacts synced
+        self.total_saved = 0 
+        self.total_synced = 0 
         self.total_jobs_found = 0
         self.total_jobs_synced = 0
         self.all_iteration_results = []
@@ -72,8 +68,6 @@ class LinkedInPostsService:
             failed_profiles = set()
             cand_idx = 0
 
-            # 3. Iterate through EVERY candidate and EVERY keyword to ensure full coverage
-            # We use max(num_keywords, num_cands) to ensure every profile is used AND every keyword is attempted.
             num_iterations = max(num_keywords, num_cands)
             logger.info(f"Will run {num_iterations} iterations to cover both keywords and candidates.")
 
@@ -120,8 +114,6 @@ class LinkedInPostsService:
                     self.total_seen += bot.total_seen
                     self.total_relevant += bot.total_relevant
                     
-                    # Sync data (offline extraction/Phase 2) 
-                    # We run this even if success is False to ensure activity logging (Phase 2 logs identified contacts)
                     try:
                         logger.info(f"Starting Data Extraction/Sync for {email} (Phase 2)...")
                         extractor = DataExtractor(candidate_id=cand_id, candidate_email=email)
@@ -142,6 +134,7 @@ class LinkedInPostsService:
                             "synced": extraction_results.get('contacts_synced', 0),
                             "positions_found": extraction_results.get('positions_found', 0),
                             "positions_synced": extraction_results.get('positions_synced', 0),
+                            "email_positions_synced": extraction_results.get('email_positions_synced', 0),
                             "posts_disk": bot.posts_saved,
                             "keywords": keyword
                         })
