@@ -4,15 +4,8 @@ import config
 class ProcessorModule:
     @staticmethod
     def extract_email(text):
-        """
-        Extract ALL valid-looking emails using a broad regex.
-        No more invalid_pattern filtering based on domain names (as requested).
-        """
         if not text:
             return None
-            
-        # Broad pattern to capture almost any email
-        # We still exclude image extensions to avoid false positives like 'image.png'
         email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
         
         image_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'}
@@ -21,11 +14,11 @@ class ProcessorModule:
         valid_emails = []
         
         for email in emails:
-            # Basic sanity check: length and structure
+           
             if len(email) < 5 or len(email) > 100:
                 continue
             
-            # Filter out image filenames that look like emails
+            
             is_image = False
             for ext in image_extensions:
                 if email.lower().endswith(ext):
@@ -56,7 +49,7 @@ class ProcessorModule:
         for pattern in patterns:
             found = re.findall(pattern, text)
             matches.extend(found)
-        return list(set(matches)) if matches else None # Return list of all found phones
+        return list(set(matches)) if matches else None 
 
     @staticmethod
     def extract_name_from_email(email):
@@ -67,9 +60,7 @@ class ProcessorModule:
         if not email: return None
         try:
             local_part = email.split('@')[0]
-            # Replace dots, underscores, numbers with spaces
             clean_name = re.sub(r'[._0-9]+', ' ', local_part).strip()
-            # Title case
             return clean_name.title()
         except: return None
 
