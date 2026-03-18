@@ -90,6 +90,20 @@ class GLiNERExtractor:
                 continue
                 
             if 'job title' in label:
+                text_lower = text.lower()
+                # Exclude obvious non-job-titles
+                junk_phrases = ['hiring post', 'could be a great fit', 'years of', 'applied ', 'on #c2c', 'c2c role', 'w2 role', '1099 role', 'looking for', 'we have', 'open role']
+                if any(phrase in text_lower for phrase in junk_phrases):
+                    continue
+                # Exclude very long strings that are likely sentences
+                if len(text) > 60 or len(text.split()) > 6:
+                    continue
+                
+                # Trim punctuation and junk from standard titles
+                text = text.strip(' .,;:!()[]{}#*')
+                if len(text) < 2:
+                    continue
+                    
                 candidates['job_title'].append((text, score))
             elif 'company' in label:
                 candidates['company'].append((text, score))

@@ -138,7 +138,7 @@ class ProcessorModule:
                 if len(title) > 3 and len(title) < 100:
                     return title.title()
 
-        return "Hiring Post"
+        return "Unknown Role"
 
     @staticmethod
     def extract_contract_type(text):

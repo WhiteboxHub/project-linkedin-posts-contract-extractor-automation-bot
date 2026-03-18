@@ -116,6 +116,10 @@ class DataExtractor:
                         # Personal Email -> DROP IT completely
                         logger.info(f"Dropping post {job.get('post_id')} due to personal email: {email}", extra={"step_name": "Sync"})
                         continue
+                    elif job.get('job_title') == 'Unknown Role':
+                        # Unknown Role -> Route to Raw Jobs instead of Email Positions
+                        logger.info(f"Routing post {job.get('post_id')} to raw jobs due to Unknown Role title", extra={"step_name": "Sync"})
+                        raw_jobs.append(job)
                     else:
                         # Company Email -> Route to Email Positions
                         email_jobs.append(job)
