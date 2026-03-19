@@ -143,11 +143,18 @@ class ProcessorModule:
         # 1. Look for explicit labels: "Role: ...", "Position: ..."
         labels = [r'role[:\s]+', r'position[:\s]+', r'title[:\s]+', r'hiring\s+for\s+', r'looking\s+for\s+(?:a\s+)?']
         for label in labels:
-            match = re.search(label + r'([^\n,.]+)', text, re.IGNORECASE)
+            match = re.search(label + r'([^\n,.;]+)', text, re.IGNORECASE)
             if match:
                 title = match.group(1).strip()
-                if len(title) > 3 and len(title) < 100:
-                    return title.title()
+                title_lower = title.lower()
+                
+                # Filter out junk titles
+                junk = ['usc only', 'gc only', 'h4ead', 'h4 ead', 'visa sponsorship', 'responsibilities', 'qualifications', 'requirements']
+                if any(j in title_lower for j in junk):
+                    continue
+                
+                if len(title) > 3 and len(title) < 80:
+                    return title.strip(' .,;:!()[]{}#*').title()
 
         return "Unknown Role"
 
