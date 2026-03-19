@@ -177,7 +177,7 @@ class JobActivityLogger:
                 "linkedin_id": data.get('linkedin_id') or data.get('author_linkedin_id'),
                 "linkedin_internal_id": data.get('linkedin_internal_id'),
                 "source_type": effective_source_type,
-                "source_reference": data.get('post_url') or data.get('post_id') or data.get('source_reference'),
+                "source_reference": data.get('post_url') or "",
                 "raw_payload": data
             })
             
@@ -227,8 +227,8 @@ class JobActivityLogger:
             logger.error(f"Unexpected error during automation extracts sync: {e}", extra={"step_name": "Sync"})
             return None
 
-    def bulk_save_raw_positions(self, jobs_list: list) -> bool:
-        """Sync identified job posts to the raw_position table in the backend."""
+    def bulk_save_job_listings(self, jobs_list: list) -> bool:
+        """Sync identified job posts to the positions (job listings) table in the backend."""
         self._ensure_valid_token()
         if not self.api_token or not jobs_list:
             return False
@@ -238,25 +238,23 @@ class JobActivityLogger:
         else:
             base_url = f"{self.api_url.rstrip('/')}/api"
             
-        endpoint = f"{base_url}/raw-positions/bulk"
+        endpoint = f"{base_url}/positions/bulk"
         
         positions_payload = []
         for job in jobs_list:
-            # Map bot fields to backend RawPositionCreate schema
+            # Map bot fields to backend JobListingCreate schema
             positions_payload.append({
-                "candidate_id": job.get('candidate_id') or (self.selected_candidate_id if self.selected_candidate_id != 0 else None),
-                "source": self.job_unique_id, # Source is the Bot ID
-                "source_uid": job.get('post_url') or job.get('post_id'), # Same mapping as automated contacts
-                "extractor_version": "v1.0",
-                "raw_title": job.get('job_title', 'Unknown Role'),
-                "raw_company": job.get('company') or job.get('author_name', 'Unknown Company'),
-                "raw_location": job.get('location', ''), 
-                "raw_zip": job.get('raw_zip', ''),
-                "raw_description": job.get('post_text_preview', ''),
-                "raw_contact_info": f"Email: {job.get('contact_email')}, Phone: {job.get('contact_phone')}",
-                "raw_notes": f"Score: {job.get('job_score')}, Matches: {job.get('job_matches')}, URL: {job.get('post_url')}, Job URL: {job.get('job_link_url')}, Keyword: {job.get('source_keyword')}",
-                "raw_payload": job,
-                "processing_status": "new"
+                "title": job.get('job_title', 'Unknown Role'),
+                "company_name": job.get('company') or job.get('author_name', 'Unknown Company'),
+                "source": "bot_linkedin_post_contact_extractor",
+                "source_uid": job.get('post_url') or "", 
+                "location": job.get('location', ''), 
+                "zip": job.get('raw_zip', ''),
+                "description": job.get('post_text_preview', ''),
+                "contact_email": job.get('contact_email'),
+                "contact_phone": job.get('contact_phone'),
+                "job_url": job.get('job_link_url') or job.get('post_url') or "",
+                "notes": f"Score: {job.get('job_score')}, Matches: {job.get('job_matches')}, Job URL: {job.get('job_link_url')}, Keyword: {job.get('source_keyword')}"
             })
             
         if not positions_payload:
@@ -267,7 +265,7 @@ class JobActivityLogger:
         try:
             response = requests.post(endpoint, json=payload, headers=self.headers)
             if response.status_code != 200:
-                print(f"  [ERROR] Bulk raw positions sync failed with status {response.status_code}")
+                print(f"  [ERROR] Bulk job listings sync failed with status {response.status_code}")
                 try:
                     error_json = response.json()
                     print(f"  [ERROR] Details: {error_json.get('detail', response.text)}")
@@ -278,11 +276,11 @@ class JobActivityLogger:
             result = response.json()
             inserted = result.get('inserted', 0)
             skipped = result.get('skipped', 0)
-            print(f"  [SUMMARY] Raw positions sync: {inserted} inserted, {skipped} skipped.")
+            print(f"  [SUMMARY] Job listings sync: {inserted} inserted, {skipped} skipped.")
             return result
         except Exception as e:
             if not isinstance(e, requests.exceptions.HTTPError):
-                print(f"  [ERROR] Bulk raw positions sync failed: {e}")
+                print(f"  [ERROR] Bulk job listings sync failed: {e}")
             return None
 
     def bulk_save_email_positions(self, jobs_list: list) -> bool:
@@ -303,9 +301,9 @@ class JobActivityLogger:
             positions_payload.append({
                 "candidate_id": job.get('candidate_id') or (self.selected_candidate_id if self.selected_candidate_id != 0 else None),
                 "source": self.job_unique_id, # Source is the Bot ID
-                "source_uid": job.get('post_url') or job.get('post_id'), 
+                "source_uid": job.get('post_url') or "", 
                 "extractor_version": "v1.0",
-                "title": job.get('job_title', 'Unknown Role'),
+                "title": job.get('job_title') or job.get('role') or 'Unknown Role',
                 "company": job.get('company') or job.get('author_name', 'Unknown Company'),
                 "location": job.get('location', ''), 
                 "zip": job.get('raw_zip', ''),

@@ -90,13 +90,13 @@ class DataExtractor:
             else:
                 logger.error("Failed to connect to backend for contact sync.", extra={"step_name": "Sync"})
 
-        # --- 6. SYNC TO BACKEND (Split Raw Positions & Email Positions) ---
+        # --- 6. SYNC TO BACKEND (Split Job Listings & Email Positions) ---
         jobs_inserted = 0
         email_jobs_inserted = 0
         
         if unique_jobs_saved:
             email_jobs = []
-            raw_jobs = []
+            job_listings = []
             
             personal_domains = {
                 'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 
@@ -106,38 +106,49 @@ class DataExtractor:
             
             for job in unique_jobs_saved:
                 email = str(job.get('contact_email') or '').strip().lower()
+                has_job_link = bool(job.get('job_link_url') and job.get('job_link_url').strip())
                 
                 if not email:
-                    # No email -> Route to Raw Jobs
-                    raw_jobs.append(job)
+                    # No email -> Route to Job Listings if has a job link
+                    if has_job_link:
+                        job_listings.append(job)
+                    else:
+                        logger.info(f"Dropping post {job.get('post_id')} due to missing email and job link", extra={"step_name": "Sync"})
                 elif '@' in email:
                     domain = email.split('@')[-1]
                     if domain in personal_domains:
-                        # Personal Email -> DROP IT completely
-                        logger.info(f"Dropping post {job.get('post_id')} due to personal email: {email}", extra={"step_name": "Sync"})
-                        continue
+                        
+                        if has_job_link:
+                            logger.info(f"Routing post {job.get('post_id')} to job listings due to personal email but has job link", extra={"step_name": "Sync"})
+                            job_listings.append(job)
+                        else:
+                            logger.info(f"Dropping post {job.get('post_id')} due to personal email: {email}", extra={"step_name": "Sync"})
                     elif job.get('job_title') == 'Unknown Role':
-                        # Unknown Role -> Route to Raw Jobs instead of Email Positions
-                        logger.info(f"Routing post {job.get('post_id')} to raw jobs due to Unknown Role title", extra={"step_name": "Sync"})
-                        raw_jobs.append(job)
+                        
+                        if has_job_link:
+                            logger.info(f"Routing post {job.get('post_id')} to job listings due to Unknown Role title but has job link", extra={"step_name": "Sync"})
+                            job_listings.append(job)
+                        else:
+                            logger.info(f"Dropping post {job.get('post_id')} due to Unknown Role and no job link", extra={"step_name": "Sync"})
                     else:
-                        # Company Email -> Route to Email Positions
                         email_jobs.append(job)
                 else:
-                    # Invalid email format, treat as no email
-                    raw_jobs.append(job)
+                    if has_job_link:
+                        job_listings.append(job)
+                    else:
+                        logger.info(f"Dropping post {job.get('post_id')} due to invalid email and no job link", extra={"step_name": "Sync"})
             
-            if raw_jobs:
-                logger.info(f"Syncing {len(raw_jobs)} jobs without emails to raw positions table...", extra={"step_name": "Sync"})
-                result = self.activity_logger.bulk_save_raw_positions(raw_jobs)
+            if job_listings:
+                logger.info(f"Syncing {len(job_listings)} jobs to job listings table...", extra={"step_name": "Sync"})
+                result = self.activity_logger.bulk_save_job_listings(job_listings)
                 if result:
                     jobs_inserted = result.get('inserted', 0)
                     if jobs_inserted > 0:
-                        logger.info(f"Successfully synced {jobs_inserted} raw jobs to backend.", extra={"step_name": "Sync"})
+                        logger.info(f"Successfully synced {jobs_inserted} jobs to job listings.", extra={"step_name": "Sync"})
                     else:
-                        logger.info("Raw jobs sync complete. No new jobs were inserted.", extra={"step_name": "Sync"})
+                        logger.info("Job listings sync complete. No new jobs were inserted.", extra={"step_name": "Sync"})
                 else:
-                    logger.error("Failed to connect to backend for raw job sync.", extra={"step_name": "Sync"})
+                    logger.error("Failed to connect to backend for job listings sync.", extra={"step_name": "Sync"})
 
             if email_jobs:
                 logger.info(f"Syncing {len(email_jobs)} jobs WITH emails to email positions table...", extra={"step_name": "Sync"})

@@ -125,16 +125,21 @@ class ScraperModule:
     def extract_post_id(self, post):
         """Extract unique post ID from LinkedIn post element."""
         try:
-            # 1. Direct attribute check (standard & new obfuscated LinkedIn)
-            # data-view-tracking-scope often contains the URN in a JSON string
+            # First, check outerHTML for the URN directly - this handles most obfuscation
+            post_html = self.browser_manager.safe_get_attribute(post, 'outerHTML')
+            if post_html:
+                match = re.search(r'urn:li:activity:(\d+)', post_html)
+                if match:
+                    return f"urn:li:activity:{match.group(1)}"
+                match = re.search(r'urn:li:ugcPost:(\d+)', post_html)
+                if match:
+                    return f"urn:li:activity:{match.group(1)}" 
             for attr in ['data-urn', 'data-activity-urn', 'data-id', 'componentkey', 'data-view-tracking-scope']:
                 val = self.browser_manager.safe_get_attribute(post, attr)
                 if val:
-                    # Look for URN pattern: urn:li:activity:7xxxxxxxxxxxxxxxxx
                     match = re.search(r'urn:li:activity:(\d+)', val)
                     if match: return match.group(0)
                     
-                    # Alternative URN formats
                     match = re.search(r'urn:li:ugcPost:(\d+)', val)
                     if match: return match.group(0)
                     
