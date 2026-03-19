@@ -36,28 +36,33 @@ class GLiNERExtractor:
             self.model = None
             
     def extract_entities(self, text: str) -> Dict[str, any]:
-        """
-        Extract job posting entities from text.
-        """
         try:
             if not text or not self.model:
                 return {}
             
-            # Predict entities
-            entities_raw = self.model.predict_entities(
-                text[:3000], # Prevent extremely long texts from breaking the model
+            # 1. Primary extraction for titles and roles (usually in first 1000 chars)
+            header_entities = self.model.predict_entities(
+                text[:1000],
+                ['Job Title'],
+                threshold=self.threshold,
+                flat_ner=True
+            )
+            
+            # 2. General extraction for all other entities
+            all_entities = self.model.predict_entities(
+                text[:3000], 
                 self.entity_labels,
                 threshold=self.threshold,
                 flat_ner=True
             )
             
-            return self._parse_entities(entities_raw)
+            return self._parse_entities(all_entities, header_entities=header_entities)
             
         except Exception as e:
             self.logger.error(f"GLiNER extraction error: {str(e)}")
             return {}
             
-    def _parse_entities(self, entities_raw: List[Dict]) -> Dict[str, any]:
+    def _parse_entities(self, entities_raw: List[Dict], header_entities: List[Dict] = None) -> Dict[str, any]:
         """Parse GLiNER output into a more usable format"""
         parsed = {
             'job_title': None,
@@ -81,7 +86,13 @@ class GLiNERExtractor:
             'visa_status': []
         }
 
-        for ent in entities_raw:
+        # Use header_entities primarily for titles if provided
+        source_entities = entities_raw
+        if header_entities:
+            # We add header entities specifically to the pool
+            source_entities = entities_raw + header_entities
+
+        for ent in source_entities:
             label = ent['label'].lower()
             text = ent['text'].strip()
             score = ent.get('score', 0)
@@ -92,7 +103,13 @@ class GLiNERExtractor:
             if 'job title' in label:
                 text_lower = text.lower()
                 # Exclude obvious non-job-titles
-                junk_phrases = ['hiring post', 'could be a great fit', 'years of', 'applied ', 'on #c2c', 'c2c role', 'w2 role', '1099 role', 'looking for', 'we have', 'open role']
+                junk_phrases = [
+                    'hiring post', 'could be a great fit', 'years of', 'applied ', 'on #c2c', 
+                    'c2c role', 'w2 role', '1099 role', 'looking for', 'we have', 'open role',
+                    'usc only', 'gc only', 'usc/gc', 'h4ead', 'h4 ead', 'visa sponsorship',
+                    'responsibilities:', 'requirements:', 'qualifications:', 'about the role',
+                    'greetings', 'note:', 'fake profile', 'reach out', 'drop your email'
+                ]
                 if any(phrase in text_lower for phrase in junk_phrases):
                     continue
                 # Exclude very long strings that are likely sentences
