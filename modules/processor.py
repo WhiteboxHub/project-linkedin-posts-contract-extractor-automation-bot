@@ -28,7 +28,18 @@ class ProcessorModule:
             if is_image:
                 continue
                 
-            if email.lower().strip().endswith("@gmail.com") or "gmail.com" in email.lower():
+            email_lower = email.lower().strip()
+            
+            # Extract domain cleanly
+            domain = email_lower.split('@')[-1] if '@' in email_lower else ""
+            
+            personal_domains = {
+                'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 
+                'aol.com', 'live.com', 'icloud.com', 'msn.com', 
+                'ymail.com', 'protonmail.com', 'mail.com'
+            }
+            
+            if domain in personal_domains or "gmail.com" in email_lower:
                 continue
                 
             valid_emails.append(email)
