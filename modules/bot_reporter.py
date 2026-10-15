@@ -1,4 +1,5 @@
 """Complete email reporting module for LinkedIn bot runs - handles generation AND sending."""
+import html
 import smtplib
 import config
 from email.mime.text import MIMEText
@@ -82,6 +83,9 @@ class BotReporter:
             start_t = self.bot.metrics.metrics.get('start_time')
             end_t = self.bot.metrics.metrics.get('end_time')
             duration = str(end_t - start_t) if start_t and end_t else "N/A"
+            date_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            raw_cand_id = self.bot.candidate_id if self.bot.candidate_id else 'Single User Mode'
+            escaped_cand_id = html.escape(str(raw_cand_id))
             
             final_metrics = {
                 "Total Posts Seen": self.bot.total_seen,
@@ -93,65 +97,149 @@ class BotReporter:
                 "Duration": duration
             }
 
-            
             html_rows = ""
             for k, v in final_metrics.items():
-                html_rows += f"<tr><td style='padding: 8px; border: 1px solid #ddd;'>{k}</td><td style='padding: 8px; border: 1px solid #ddd;'>{v}</td></tr>"
+                escaped_k = html.escape(str(k))
+                escaped_v = html.escape(str(v))
+                html_rows += f"""
+                <tr class="metric-row">
+                    <td class="metric-name" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; color: #475569; font-size: 13px;">{escaped_k}</td>
+                    <td class="metric-val" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; text-align: right; font-weight: 600; color: #1e293b; font-size: 13px;">{escaped_v}</td>
+                </tr>
+                """
 
-            
             keyword_rows = ""
             for k, m in self.bot.keyword_metrics.items():
-                keyword_rows += f"<tr><td style='padding: 8px; border: 1px solid #ddd;'>{k}</td><td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{m['seen']}</td><td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{m['relevant']}</td><td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{m['extracted']}</td><td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{m['saved']}</td></tr>"
+                escaped_k = html.escape(str(k))
+                seen = m.get('seen', 0) if isinstance(m, dict) else getattr(m, 'seen', 0)
+                relevant = m.get('relevant', 0) if isinstance(m, dict) else getattr(m, 'relevant', 0)
+                extracted = m.get('extracted', 0) if isinstance(m, dict) else getattr(m, 'extracted', 0)
+                saved = m.get('saved', 0) if isinstance(m, dict) else getattr(m, 'saved', 0)
+                keyword_rows += f"""
+                <tr class="metric-row">
+                    <td style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; color: #334155; font-size: 13px;">{escaped_k}</td>
+                    <td style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; text-align: center; color: #64748b; font-size: 13px;">{seen}</td>
+                    <td style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; text-align: center; color: #2563eb; font-weight: 600; font-size: 13px;">{relevant}</td>
+                    <td style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; text-align: center; color: #16a34a; font-weight: 600; font-size: 13px;">{extracted}</td>
+                    <td style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; text-align: center; color: #0d9488; font-weight: 600; font-size: 13px;">{saved}</td>
+                </tr>
+                """
 
-           
             error_section = ""
             failed_reasons = self.bot.metrics.metrics.get('failed_reasons', {})
             if failed_reasons:
                 error_rows = ""
                 for err_name, count in failed_reasons.items():
-                    error_rows += f"<li>{err_name}: {count}</li>"
+                    error_rows += f"<li style='margin-bottom: 4px;'><strong>{html.escape(str(err_name))}</strong>: {html.escape(str(count))}</li>"
                 if error_rows:
-                    error_section = f"<h3>Errors/Warnings</h3><ul>{error_rows}</ul>"
+                    error_section = f"""
+                    <div style="margin-top: 25px; padding: 18px 20px; background-color: #fef2f2; border: 1px solid #fee2e2; border-radius: 8px;">
+                        <div style="color: #991b1b; font-size: 14px; font-weight: bold; margin-bottom: 10px; display: flex; align-items: center;">
+                            <span style="margin-right: 8px;">⚠️</span> Errors / Warnings
+                        </div>
+                        <ul style="margin: 0; padding-left: 20px; color: #b91c1c; font-size: 13px; line-height: 1.5;">
+                            {error_rows}
+                        </ul>
+                    </div>
+                    """
 
-            # 5. Build complete HTML body
             email_body = f"""
             <html>
-            <body style="font-family: Arial, sans-serif;">
-                <h2>LinkedIn Posts Bot Run Report</h2>
-                <p><strong>Date:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-                <p><strong>Candidate ID:</strong> {self.bot.candidate_id if self.bot.candidate_id else 'Single User Mode'}</p>
-                
-                <h3>Session Metrics</h3>
-                <table style="border-collapse: collapse; width: 100%; max-width: 600px;">
-                    <tr style="background-color: #f2f2f2;">
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Metric</th>
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Value</th>
-                    </tr>
-                    {html_rows}
-                </table>
+                <head>
+                    <style>
+                        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f7f9; color: #333; }}
+                        .header {{ background: linear-gradient(135deg, #1e4eb8 0%, #3b82f6 100%); color: white; padding: 35px 25px 45px 25px; text-align: left; border-radius: 8px 8px 0 0; }}
+                        .header h1 {{ margin: 8px 0 4px 0; font-size: 24px; font-weight: bold; color: #ffffff; }}
+                        .header p {{ margin: 0; font-size: 13px; opacity: 0.9; }}
+                        .header .sub {{ font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.85; }}
+                        .content {{ padding: 30px; max-width: 680px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-top: -20px; }}
+                        .intro-text {{ color: #64748b; font-size: 14px; line-height: 1.6; margin-top: 0; margin-bottom: 25px; }}
+                        .section-title {{ font-size: 16px; font-weight: bold; margin: 25px 0 12px 0; display: flex; align-items: center; color: #1e293b; }}
+                        table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; }}
+                        th {{ background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: left; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; }}
+                        td {{ padding: 12px 15px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }}
+                        .footer {{ text-align: center; padding: 25px 20px 10px 20px; font-size: 12px; color: #94a3b8; line-height: 1.6; }}
+                    </style>
+                </head>
+                <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f7f9; color: #333;">
+                    <div style="max-width: 680px; margin: 20px auto;">
+                        <div style="background: linear-gradient(135deg, #1e4eb8 0%, #3b82f6 100%); color: white; padding: 35px 25px 45px 25px; text-align: left; border-radius: 8px 8px 0 0;">
+                            <div style="font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.85;">WHITEBOX LEARNING</div>
+                            <h1 style="margin: 8px 0 4px 0; font-size: 24px; font-weight: bold; color: #ffffff;">LinkedIn Posts Bot Run Report</h1>
+                            <p style="margin: 0; font-size: 13px; opacity: 0.9;">Run completed on {date_time_str} • Candidate: {escaped_cand_id}</p>
+                        </div>
 
-                <h3>Keyword Breakdown</h3>
-                <table style="border-collapse: collapse; width: 100%; max-width: 800px;">
-                    <tr style="background-color: #f2f2f2;">
-                        <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Keyword</th>
-                        <th style="padding: 8px; border: 1px solid #ddd; text-align: center;">Seen</th>
-                        <th style="padding: 8px; border: 1px solid #ddd; text-align: center;">Relevant</th>
-                        <th style="padding: 8px; border: 1px solid #ddd; text-align: center;">Extracted</th>
-                        <th style="padding: 8px; border: 1px solid #ddd; text-align: center;">Saved</th>
-                    </tr>
-                    {keyword_rows}
-                </table>
-                
-                {error_section}
-                
-                <p style="font-size: 0.9em; color: #666;">
-                    <em>Report generated by LinkedIn Posts Contract Extractor Bot.</em>
-                </p>
-            </body>
+                        <div style="padding: 30px; background: #ffffff; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-top: -20px;">
+                            <p style="color: #64748b; font-size: 14px; line-height: 1.6; margin-top: 0; margin-bottom: 25px;">
+                                The automated LinkedIn posts extraction pipeline has completed for candidate <strong>{escaped_cand_id}</strong>.
+                            </p>
+
+                            <div style="display: flex; gap: 12px; margin-bottom: 25px; flex-wrap: wrap;">
+                                <div style="flex: 1; min-width: 120px; padding: 16px 14px; border-radius: 8px; text-align: center; background-color: #eff6ff; border: 1px solid #dbeafe; color: #1e40af;">
+                                    <span style="font-size: 24px; font-weight: bold; display: block; margin-bottom: 4px; color: #1e40af;">{self.bot.total_seen}</span>
+                                    <span style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px;">POSTS SEEN</span>
+                                </div>
+                                <div style="flex: 1; min-width: 120px; padding: 16px 14px; border-radius: 8px; text-align: center; background-color: #f0fdfa; border: 1px solid #ccfbf1; color: #115e59;">
+                                    <span style="font-size: 24px; font-weight: bold; display: block; margin-bottom: 4px; color: #115e59;">{self.bot.total_relevant}</span>
+                                    <span style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px;">RELEVANT</span>
+                                </div>
+                                <div style="flex: 1; min-width: 120px; padding: 16px 14px; border-radius: 8px; text-align: center; background-color: #f0fdf4; border: 1px solid #dcfce7; color: #166534;">
+                                    <span style="font-size: 24px; font-weight: bold; display: block; margin-bottom: 4px; color: #166534;">{self.bot.total_saved}</span>
+                                    <span style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px;">EXTRACTED</span>
+                                </div>
+                                <div style="flex: 1; min-width: 120px; padding: 16px 14px; border-radius: 8px; text-align: center; background-color: #fffbeb; border: 1px solid #fef3c7; color: #92400e;">
+                                    <span style="font-size: 24px; font-weight: bold; display: block; margin-bottom: 4px; color: #92400e;">{self.bot.total_synced}</span>
+                                    <span style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px;">SYNCED</span>
+                                </div>
+                            </div>
+
+                            <div style="font-size: 16px; font-weight: bold; margin: 25px 0 12px 0; color: #1e293b;">
+                                <span style="margin-right: 8px;">📊</span> Session Metrics
+                            </div>
+
+                            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                                <thead>
+                                    <tr>
+                                        <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: left; padding: 12px 15px; border-bottom: 1px solid #e2e8f0;">Metric</th>
+                                        <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: right; padding: 12px 15px; border-bottom: 1px solid #e2e8f0;">Value</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {html_rows}
+                                </tbody>
+                            </table>
+
+                            <div style="font-size: 16px; font-weight: bold; margin: 25px 0 12px 0; color: #1e293b;">
+                                <span style="margin-right: 8px;">🔍</span> Keyword Breakdown
+                            </div>
+
+                            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                                <thead>
+                                    <tr>
+                                        <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: left; padding: 12px 15px; border-bottom: 1px solid #e2e8f0;">Keyword</th>
+                                        <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: center; padding: 12px 15px; border-bottom: 1px solid #e2e8f0;">Seen</th>
+                                        <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: center; padding: 12px 15px; border-bottom: 1px solid #e2e8f0;">Relevant</th>
+                                        <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: center; padding: 12px 15px; border-bottom: 1px solid #e2e8f0;">Extracted</th>
+                                        <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: center; padding: 12px 15px; border-bottom: 1px solid #e2e8f0;">Saved</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {keyword_rows}
+                                </tbody>
+                            </table>
+
+                            {error_section}
+                        </div>
+
+                        <div style="text-align: center; padding: 25px 20px 10px 20px; font-size: 12px; color: #94a3b8; line-height: 1.6;">
+                            Report generated by LinkedIn Posts Contract Extractor Bot.
+                        </div>
+                    </div>
+                </body>
             </html>
             """
             
-            # 6. Generate subject
+            # Generate subject
             subject = f"LinkedIn Posts Contract Extractor Bot Report - {datetime.now().strftime('%Y-%m-%d')}"
             if self.bot.candidate_id:
                 subject += f" (Cand: {self.bot.candidate_id})"
@@ -245,89 +333,195 @@ class ConsolidatedBotReporter:
             total_positions_found = sum(r.get('positions_found', 0) for r in self.results)
             total_positions_synced = sum(r.get('positions_synced', 0) for r in self.results)
             total_email_positions_synced = sum(r.get('email_positions_synced', 0) for r in self.results)
+            date_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
             summary_rows = ""
             for r in self.results:
+                cand_id = html.escape(str(r.get('candidate_id', 'N/A')))
+                email = html.escape(str(r.get('email', 'N/A')))
+                keywords = html.escape(str(r.get('keywords', 'N/A')))
+                seen = r.get('seen', 0)
+                relevant = r.get('relevant', 0)
+                saved = r.get('saved', 0)
+                synced = r.get('synced', 0)
+                pos_found = r.get('positions_found', 0)
+                pos_synced = r.get('positions_synced', 0)
+                email_pos_synced = r.get('email_positions_synced', 0)
+
                 summary_rows += f"""
-                <tr>
-                    <td style='padding: 8px; border: 1px solid #ddd;'>{r.get('candidate_id', 'N/A')}</td>
-                    <td style='padding: 8px; border: 1px solid #ddd;'>{r.get('email', 'N/A')}</td>
-                    <td style='padding: 8px; border: 1px solid #ddd; font-size: 0.9em;'>{r.get('keywords', 'N/A')}</td>
-                    <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('seen', 0)}</td>
-                    <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('relevant', 0)}</td>
-                    <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('saved', 0)}</td>
-                    <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('synced', 0)}</td>
-                    <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('positions_found', 0)}</td>
-                    <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('positions_synced', 0)}</td>
-                    <td style='padding: 8px; border: 1px solid #ddd; text-align: center;'>{r.get('email_positions_synced', 0)}</td>
+                <tr class="metric-row">
+                    <td class="metric-name" style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 13px; font-weight: 600; color: #1e293b;">{cand_id}</td>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 12px; color: #64748b;"><a href="mailto:{email}" style="color: #3b82f6; text-decoration: none;">{email}</a></td>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 12px; color: #64748b;">{keywords}</td>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: center; font-size: 13px; color: #64748b;">{seen}</td>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: center; font-size: 13px; font-weight: 600; color: #2563eb;">{relevant}</td>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: center; font-size: 13px; font-weight: 600; color: #16a34a;">{saved}</td>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: center; font-size: 13px; font-weight: 600; color: #ea580c;">{synced}</td>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: center; font-size: 13px; font-weight: 600; color: #0d9488;">{pos_found}</td>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: center; font-size: 13px; font-weight: 600; color: #2563eb;">{pos_synced}</td>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: center; font-size: 13px; font-weight: 600; color: #16a34a;">{email_pos_synced}</td>
                 </tr>
                 """
 
             html_body = f"""
             <html>
-            <body style="font-family: Arial, sans-serif;">
-                <h2 style="color: #2c3e50;">LinkedIn Posts Extractor Bot Run Report</h2>
-                <p><strong>Date:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-                
-                <h3>Total Summary</h3>
-                <table style="border-collapse: collapse; width: 100%; max-width: 500px; margin-bottom: 20px;">
-                    <tr style="background-color: #f8f9fa;">
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Runs</th>
-                        <td style="padding: 10px; border: 1px solid #ddd;">{total_runs}</td>
-                    </tr>
-                    <tr>
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Posts Seen</th>
-                        <td style="padding: 10px; border: 1px solid #ddd;">{total_seen}</td>
-                    </tr>
-                    <tr style="background-color: #f8f9fa;">
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Relevant Posts</th>
-                        <td style="padding: 10px; border: 1px solid #ddd;">{total_relevant}</td>
-                    </tr>
-                    <tr>
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Contacts Found</th>
-                        <td style="padding: 10px; border: 1px solid #ddd;">{total_saved}</td>
-                    </tr>
-                    <tr style="background-color: #f8f9fa;">
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Contacts Synced</th>
-                        <td style="padding: 10px; border: 1px solid #ddd;">{total_synced}</td>
-                    </tr>
-                    <tr>
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Jobs Identified</th>
-                        <td style="padding: 10px; border: 1px solid #ddd;">{total_positions_found}</td>
-                    </tr>
-                    <tr style="background-color: #f8f9fa;">
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Jobs Synced (Raw)</th>
-                        <td style="padding: 10px; border: 1px solid #ddd;">{total_positions_synced}</td>
-                    </tr>
-                    <tr>
-                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Total Jobs Synced (Email)</th>
-                        <td style="padding: 10px; border: 1px solid #ddd;">{total_email_positions_synced}</td>
-                    </tr>
-                </table>
+                <head>
+                    <style>
+                        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f7f9; color: #333; }}
+                        .header {{ background: linear-gradient(135deg, #1e4eb8 0%, #3b82f6 100%); color: white; padding: 35px 25px 45px 25px; text-align: left; border-radius: 8px 8px 0 0; }}
+                        .header h1 {{ margin: 8px 0 4px 0; font-size: 24px; font-weight: bold; color: #ffffff; }}
+                        .header p {{ margin: 0; font-size: 13px; opacity: 0.9; }}
+                        .header .sub {{ font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.85; }}
+                        .content {{ padding: 30px; max-width: 900px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-top: -20px; }}
+                        .intro-text {{ color: #64748b; font-size: 14px; line-height: 1.6; margin-top: 0; margin-bottom: 25px; }}
+                        .section-title {{ font-size: 16px; font-weight: bold; margin: 25px 0 12px 0; display: flex; align-items: center; color: #1e293b; }}
+                        table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; }}
+                        th {{ background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: left; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; }}
+                        td {{ padding: 12px 15px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }}
+                        .footer {{ text-align: center; padding: 25px 20px 10px 20px; font-size: 12px; color: #94a3b8; line-height: 1.6; }}
+                    </style>
+                </head>
+                <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f7f9; color: #333;">
+                    <div style="max-width: 900px; margin: 20px auto;">
+                        <div style="background: linear-gradient(135deg, #1e4eb8 0%, #3b82f6 100%); color: white; padding: 35px 25px 45px 25px; text-align: left; border-radius: 8px 8px 0 0;">
+                            <div style="font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.85;">WHITEBOX LEARNING</div>
+                            <h1 style="margin: 8px 0 4px 0; font-size: 24px; font-weight: bold; color: #ffffff;">LinkedIn Posts Extractor Bot Run Report</h1>
+                            <p style="margin: 0; font-size: 13px; opacity: 0.9;">Run completed on {date_time_str} • {total_runs} Candidate Runs</p>
+                        </div>
 
+                        <div style="padding: 30px; background: #ffffff; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-top: -20px;">
+                            <p style="color: #64748b; font-size: 14px; line-height: 1.6; margin-top: 0; margin-bottom: 25px;">
+                                This report summarises the automated LinkedIn posts extraction workflow across all candidate runs. The run completed with the following overall metrics.
+                            </p>
 
-                <h3>Candidate Breakdown</h3>
-                <table style="border-collapse: collapse; width: 100%;">
-                    <tr style="background-color: #2c3e50; color: white;">
-                        <th style="padding: 10px; border: 1px solid #ddd;">Candidate ID</th>
-                        <th style="padding: 10px; border: 1px solid #ddd;">Email</th>
-                        <th style="padding: 10px; border: 1px solid #ddd;">Keywords</th>
-                        <th style="padding: 10px; border: 1px solid #ddd;">Seen</th>
-                        <th style="padding: 10px; border: 1px solid #ddd;">Relevant Posts</th>
-                        <th style="padding: 10px; border: 1px solid #ddd;">Contacts Found</th>
-                        <th style="padding: 10px; border: 1px solid #ddd;">Synced</th>
-                        <th style="padding: 10px; border: 1px solid #ddd;">Jobs Found</th>
-                        <th style="padding: 10px; border: 1px solid #ddd;">Raw Synced</th>
-                        <th style="padding: 10px; border: 1px solid #ddd;">Email Synced</th>
-                    </tr>
-                    {summary_rows}
-                </table>
+                            <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+                                <div style="flex: 1; min-width: 100px; padding: 14px 12px; border-radius: 8px; text-align: center; background-color: #eff6ff; border: 1px solid #dbeafe; color: #1e40af;">
+                                    <span style="font-size: 22px; font-weight: bold; display: block; margin-bottom: 4px; color: #1e40af;">{total_runs}</span>
+                                    <span style="font-size: 9px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px;">TOTAL RUNS</span>
+                                </div>
+                                <div style="flex: 1; min-width: 100px; padding: 14px 12px; border-radius: 8px; text-align: center; background-color: #f0fdfa; border: 1px solid #ccfbf1; color: #115e59;">
+                                    <span style="font-size: 22px; font-weight: bold; display: block; margin-bottom: 4px; color: #115e59;">{total_seen}</span>
+                                    <span style="font-size: 9px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px;">POSTS SEEN</span>
+                                </div>
+                                <div style="flex: 1; min-width: 100px; padding: 14px 12px; border-radius: 8px; text-align: center; background-color: #eff6ff; border: 1px solid #dbeafe; color: #1e40af;">
+                                    <span style="font-size: 22px; font-weight: bold; display: block; margin-bottom: 4px; color: #1e40af;">{total_relevant}</span>
+                                    <span style="font-size: 9px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px;">RELEVANT POSTS</span>
+                                </div>
+                                <div style="flex: 1; min-width: 100px; padding: 14px 12px; border-radius: 8px; text-align: center; background-color: #f0fdf4; border: 1px solid #dcfce7; color: #166534;">
+                                    <span style="font-size: 22px; font-weight: bold; display: block; margin-bottom: 4px; color: #166534;">{total_saved}</span>
+                                    <span style="font-size: 9px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px;">CONTACTS FOUND</span>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 10px; margin-bottom: 25px; flex-wrap: wrap;">
+                                <div style="flex: 1; min-width: 100px; padding: 14px 12px; border-radius: 8px; text-align: center; background-color: #fffbeb; border: 1px solid #fef3c7; color: #92400e;">
+                                    <span style="font-size: 22px; font-weight: bold; display: block; margin-bottom: 4px; color: #92400e;">{total_synced}</span>
+                                    <span style="font-size: 9px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px;">CONTACTS SYNCED</span>
+                                </div>
+                                <div style="flex: 1; min-width: 100px; padding: 14px 12px; border-radius: 8px; text-align: center; background-color: #f0fdfa; border: 1px solid #ccfbf1; color: #115e59;">
+                                    <span style="font-size: 22px; font-weight: bold; display: block; margin-bottom: 4px; color: #115e59;">{total_positions_found}</span>
+                                    <span style="font-size: 9px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px;">JOBS FOUND</span>
+                                </div>
+                                <div style="flex: 1; min-width: 100px; padding: 14px 12px; border-radius: 8px; text-align: center; background-color: #eff6ff; border: 1px solid #dbeafe; color: #1e40af;">
+                                    <span style="font-size: 22px; font-weight: bold; display: block; margin-bottom: 4px; color: #1e40af;">{total_positions_synced}</span>
+                                    <span style="font-size: 9px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px;">RAW SYNCED</span>
+                                </div>
+                                <div style="flex: 1; min-width: 100px; padding: 14px 12px; border-radius: 8px; text-align: center; background-color: #f0fdf4; border: 1px solid #dcfce7; color: #166534;">
+                                    <span style="font-size: 22px; font-weight: bold; display: block; margin-bottom: 4px; color: #166534;">{total_email_positions_synced}</span>
+                                    <span style="font-size: 9px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px;">EMAIL SYNCED</span>
+                                </div>
+                            </div>
 
+                            <div style="font-size: 16px; font-weight: bold; margin: 25px 0 12px 0; color: #1e293b;">
+                                <span style="margin-right: 8px;">📊</span> Total Summary
+                            </div>
 
-                <p style="margin-top: 30px; font-size: 0.85em; color: #7f8c8d;">
-                    <em>This is an automated report from the LinkedIn Posts Bot.</em>
-                </p>
-            </body>
+                            <table style="width: 100%; max-width: 600px; border-collapse: collapse; margin-bottom: 25px;">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 70%; background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: left; padding: 12px 15px; border-bottom: 1px solid #e2e8f0;">Metric</th>
+                                        <th style="text-align: right; background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; padding: 12px 15px; border-bottom: 1px solid #e2e8f0;">Value</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="metric-row">
+                                        <td class="metric-name" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; color: #475569; font-size: 13px;">Total Runs</td>
+                                        <td class="metric-val" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; text-align: right; font-weight: 600; color: #1e293b; font-size: 13px;">{total_runs}</td>
+                                    </tr>
+                                    <tr class="metric-row">
+                                        <td class="metric-name" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; color: #475569; font-size: 13px;">Total Posts Seen</td>
+                                        <td class="metric-val" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; text-align: right; font-weight: 600; color: #1e293b; font-size: 13px;">{total_seen}</td>
+                                    </tr>
+                                    <tr class="metric-row">
+                                        <td class="metric-name" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; color: #475569; font-size: 13px;">Total Relevant Posts</td>
+                                        <td class="metric-val" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; text-align: right; font-weight: 600; color: #2563eb; font-size: 13px;">{total_relevant}</td>
+                                    </tr>
+                                    <tr class="metric-row">
+                                        <td class="metric-name" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; color: #475569; font-size: 13px;">Total Contacts Found</td>
+                                        <td class="metric-val" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; text-align: right; font-weight: 600; color: #16a34a; font-size: 13px;">{total_saved}</td>
+                                    </tr>
+                                    <tr class="metric-row">
+                                        <td class="metric-name" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; color: #475569; font-size: 13px;">Total Contacts Synced</td>
+                                        <td class="metric-val" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; text-align: right; font-weight: 600; color: #ea580c; font-size: 13px;">{total_synced}</td>
+                                    </tr>
+                                    <tr class="metric-row">
+                                        <td class="metric-name" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; color: #475569; font-size: 13px;">Total Jobs Identified</td>
+                                        <td class="metric-val" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; text-align: right; font-weight: 600; color: #0d9488; font-size: 13px;">{total_positions_found}</td>
+                                    </tr>
+                                    <tr class="metric-row">
+                                        <td class="metric-name" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; color: #475569; font-size: 13px;">Total Jobs Synced (Raw)</td>
+                                        <td class="metric-val" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; text-align: right; font-weight: 600; color: #2563eb; font-size: 13px;">{total_positions_synced}</td>
+                                    </tr>
+                                    <tr class="metric-row">
+                                        <td class="metric-name" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; color: #475569; font-size: 13px;">Total Jobs Synced (Email)</td>
+                                        <td class="metric-val" style="padding: 12px 15px; border-bottom: 1px solid #f1f5f9; text-align: right; font-weight: 600; color: #16a34a; font-size: 13px;">{total_email_positions_synced}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <div style="font-size: 16px; font-weight: bold; margin: 25px 0 12px 0; color: #1e293b;">
+                                <span style="margin-right: 8px;">👤</span> Candidate Breakdown
+                            </div>
+
+                            <div style="overflow-x: auto;">
+                                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                                    <thead>
+                                        <tr>
+                                            <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: left; padding: 12px 10px; border-bottom: 1px solid #e2e8f0;">Candidate ID</th>
+                                            <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: left; padding: 12px 10px; border-bottom: 1px solid #e2e8f0;">Email</th>
+                                            <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: left; padding: 12px 10px; border-bottom: 1px solid #e2e8f0;">Keywords</th>
+                                            <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: center; padding: 12px 10px; border-bottom: 1px solid #e2e8f0;">Seen</th>
+                                            <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: center; padding: 12px 10px; border-bottom: 1px solid #e2e8f0;">Relevant</th>
+                                            <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: center; padding: 12px 10px; border-bottom: 1px solid #e2e8f0;">Contacts</th>
+                                            <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: center; padding: 12px 10px; border-bottom: 1px solid #e2e8f0;">Synced</th>
+                                            <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: center; padding: 12px 10px; border-bottom: 1px solid #e2e8f0;">Jobs Found</th>
+                                            <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: center; padding: 12px 10px; border-bottom: 1px solid #e2e8f0;">Raw Synced</th>
+                                            <th style="background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; text-align: center; padding: 12px 10px; border-bottom: 1px solid #e2e8f0;">Email Synced</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {summary_rows}
+                                        <tr style="background-color: #f8fafc; font-weight: bold; border-top: 2px solid #e2e8f0;">
+                                            <td style="padding: 10px 12px; color: #111; font-size: 13px;">TOTAL</td>
+                                            <td style="padding: 10px 12px; color: #64748b; font-size: 11px;">-</td>
+                                            <td style="padding: 10px 12px; color: #64748b; font-size: 11px;">-</td>
+                                            <td style="padding: 10px 12px; text-align: center; font-size: 13px; color: #64748b;">{total_seen}</td>
+                                            <td style="padding: 10px 12px; text-align: center; font-size: 13px; color: #2563eb;">{total_relevant}</td>
+                                            <td style="padding: 10px 12px; text-align: center; font-size: 13px; color: #16a34a;">{total_saved}</td>
+                                            <td style="padding: 10px 12px; text-align: center; font-size: 13px; color: #ea580c;">{total_synced}</td>
+                                            <td style="padding: 10px 12px; text-align: center; font-size: 13px; color: #0d9488;">{total_positions_found}</td>
+                                            <td style="padding: 10px 12px; text-align: center; font-size: 13px; color: #2563eb;">{total_positions_synced}</td>
+                                            <td style="padding: 10px 12px; text-align: center; font-size: 13px; color: #16a34a;">{total_email_positions_synced}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div style="text-align: center; padding: 25px 20px 10px 20px; font-size: 12px; color: #94a3b8; line-height: 1.6;">
+                            This is an automated report from the LinkedIn Posts Bot.
+                        </div>
+                    </div>
+                </body>
             </html>
             """
             
